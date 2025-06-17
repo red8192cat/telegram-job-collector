@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Set
 
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.error import TelegramError
 
 # Configure logging
@@ -29,7 +29,7 @@ class JobCollectorBot:
         self.app = Application.builder().token(token).build()
         self.user_keywords = {}  # {chat_id: [keywords]}
         self.channels_to_monitor = []
-        self.job_keywords = ['job', 'hiring', 'vacancy', 'position', 'remote', 'work']
+        self.job_keywords = ['job', 'hiring', 'vacancy', 'position', 'remote', 'work', 'developer', 'engineer', 'programmer']
         
         # Load configuration
         self.load_config()
@@ -79,6 +79,9 @@ class JobCollectorBot:
         self.app.add_handler(CommandHandler("delete_keyword_from_list", self.delete_keyword_command))
         self.app.add_handler(CommandHandler("purge_list", self.purge_keywords_command))
         self.app.add_handler(CommandHandler("my_keywords", self.show_keywords_command))
+        
+        # Add message handler to process channel messages in real-time
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_channel_message))
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -99,7 +102,7 @@ class JobCollectorBot:
             "/purge_list - Clear all your keywords\n"
             "/my_keywords - Show your current keywords\n"
             "/help - Show this help message\n\n"
-            "🕐 Bot runs twice daily at 08:00 and 20:00 UTC"
+            "💡 The bot monitors configured channels and forwards matching jobs automatically."
         )
         await update.message.reply_text(help_msg)
     
@@ -193,9 +196,47 @@ class JobCollectorBot:
         text_lower = message_text.lower()
         return any(keyword in text_lower for keyword in user_keywords)
     
+    async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle incoming messages from monitored channels"""
+        message = update.message
+        if not message or not message.text:
+            return
+        
+        # Check if message is from a monitored channel
+        chat_id = message.chat.id
+        channel_username = f"@{message.chat.username}" if message.chat.username else str(chat_id)
+        
+        if channel_username not in self.channels_to_monitor and str(chat_id) not in self.channels_to_monitor:
+            return
+        
+        logger.info(f"Processing message from channel: {channel_username}")
+        
+        # Check if it's a job-related message
+        if not self.is_job_message(message.text):
+            logger.info("Message doesn't contain job keywords")
+            return
+        
+        # Check against each user's keywords and forward if matches
+        for user_chat_id, keywords in self.user_keywords.items():
+            if self.matches_user_keywords(message.text, keywords):
+                try:
+                    # Forward the message directly to the user's private chat
+                    await context.bot.forward_message(
+                        chat_id=user_chat_id,
+                        from_chat_id=chat_id,
+                        message_id=message.message_id
+                    )
+                    logger.info(f"Forwarded job to user {user_chat_id}")
+                    
+                    # Small delay to avoid rate limiting
+                    await asyncio.sleep(0.5)
+                    
+                except TelegramError as e:
+                    logger.error(f"Failed to forward to user {user_chat_id}: {e}")
+    
     async def collect_and_repost_jobs(self):
-        """Main job collection function"""
-        logger.info("Starting job collection...")
+        """Manual job collection function for scheduled runs"""
+        logger.info("Starting manual job collection...")
         
         if not self.channels_to_monitor:
             logger.warning("No channels configured to monitor")
@@ -212,41 +253,46 @@ class JobCollectorBot:
             try:
                 logger.info(f"Checking channel: {channel}")
                 
-                # Get recent messages from channel
-                async for message in self.app.bot.iter_history(
-                    chat_id=channel,
-                    limit=100,
-                    offset_date=since_time
-                ):
-                    if not message.text:
-                        continue
+                # Get recent messages from channel using get_chat_history
+                try:
+                    messages = []
+                    async for message in context.bot.get_chat_history(
+                        chat_id=channel,
+                        limit=50
+                    ):
+                        if message.date > since_time and message.text:
+                            messages.append(message)
                     
-                    # Check if it's a job-related message
-                    if not self.is_job_message(message.text):
-                        continue
-                    
-                    # Check against each user's keywords
-                    for chat_id, keywords in self.user_keywords.items():
-                        if self.matches_user_keywords(message.text, keywords):
-                            try:
-                                # Forward the message to user's group
-                                await self.app.bot.forward_message(
-                                    chat_id=chat_id,
-                                    from_chat_id=channel,
-                                    message_id=message.message_id
-                                )
-                                logger.info(f"Forwarded job to chat {chat_id}")
-                                
-                                # Small delay to avoid rate limiting
-                                await asyncio.sleep(0.5)
-                                
-                            except TelegramError as e:
-                                logger.error(f"Failed to forward to {chat_id}: {e}")
+                    for message in messages:
+                        # Check if it's a job-related message
+                        if not self.is_job_message(message.text):
+                            continue
+                        
+                        # Check against each user's keywords
+                        for user_chat_id, keywords in self.user_keywords.items():
+                            if self.matches_user_keywords(message.text, keywords):
+                                try:
+                                    # Forward the message directly to the user's private chat
+                                    await self.app.bot.forward_message(
+                                        chat_id=user_chat_id,
+                                        from_chat_id=channel,
+                                        message_id=message.message_id
+                                    )
+                                    logger.info(f"Forwarded job to user {user_chat_id}")
+                                    
+                                    # Small delay to avoid rate limiting
+                                    await asyncio.sleep(0.5)
+                                    
+                                except TelegramError as e:
+                                    logger.error(f"Failed to forward to user {user_chat_id}: {e}")
+                
+                except Exception as e:
+                    logger.error(f"Failed to get messages from {channel}: {e}")
                 
             except Exception as e:
                 logger.error(f"Error processing channel {channel}: {e}")
         
-        logger.info("Job collection completed")
+        logger.info("Manual job collection completed")
     
     async def run_scheduled_job(self):
         """Run the scheduled job collection"""
