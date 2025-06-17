@@ -1,20 +1,19 @@
 # 🤖 Telegram Job Collector Bot
 
-A simple Docker-based Telegram bot that collects job postings from multiple channels and forwards them to user groups based on keywords.
+A simple Docker-based Telegram bot that collects job postings from multiple channels and forwards them to users based on keywords.
 
 ## ✨ Features
 
-- 🕐 **Scheduled Collection**: Runs twice daily (08:00 & 20:00 UTC)
+- 🕐 **Realtime Collection**: Forwards the job posts immediately as they appear
 - 🎯 **Keyword Matching**: Users set their own job search keywords
-- 📨 **Smart Forwarding**: Automatically forwards matching jobs to user groups
+- 📨 **Smart Forwarding**: Automatically forwards matching jobs to users
 - 🐳 **Docker Ready**: Complete containerized deployment
 - 🔧 **Easy Configuration**: Simple JSON config files
-- 👥 **Multi-User**: Multiple groups can use the same bot
 
 ## 🚀 Quick Start
 
 1. **Create your bot** with [@BotFather](https://t.me/botfather)
-2. **Clone this repo**: `git clone https://github.com/yourusername/telegram-job-collector.git`
+2. **Clone this repo**: `git clone https://github.com/red8192cat/telegram-job-collector.git`
 3. **Configure**: Copy example files and add your settings
 4. **Deploy**: `docker-compose up -d`
 
