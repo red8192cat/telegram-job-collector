@@ -29,10 +29,8 @@ class JobCollectorBot:
         self.app = Application.builder().token(token).build()
         self.user_keywords = {}  # {chat_id: [keywords]}
         self.user_ignore_keywords = {}  # {chat_id: [ignore_keywords]}
-        self.user_usage = {}  # {chat_id: {'count': int, 'reset_date': datetime, 'is_premium': bool}}
         self.channels_to_monitor = []
         self.job_keywords = ['job', 'hiring', 'vacancy', 'position', 'remote', 'work', 'developer', 'engineer', 'programmer']
-        self.free_daily_limit = 10
         
         # Load configuration
         self.load_config()
@@ -75,21 +73,6 @@ class JobCollectorBot:
         except FileNotFoundError:
             logger.info("user_ignore_keywords.json not found, starting with empty ignore list")
             self.user_ignore_keywords = {}
-        
-        # Load usage data
-        try:
-            with open('data/user_usage.json', 'r') as f:
-                usage_data = json.load(f)
-                self.user_usage = {}
-                for k, v in usage_data.items():
-                    self.user_usage[int(k)] = {
-                        'count': v.get('count', 0),
-                        'reset_date': datetime.fromisoformat(v.get('reset_date', datetime.now().isoformat())),
-                        'is_premium': v.get('is_premium', False)
-                    }
-        except FileNotFoundError:
-            logger.info("user_usage.json not found, starting with empty usage data")
-            self.user_usage = {}
     
     def save_user_data(self):
         """Save all user data to files"""
@@ -103,17 +86,6 @@ class JobCollectorBot:
             # Save ignore keywords
             with open('data/user_ignore_keywords.json', 'w') as f:
                 json.dump(self.user_ignore_keywords, f, indent=2)
-            
-            # Save usage data
-            usage_data = {}
-            for k, v in self.user_usage.items():
-                usage_data[str(k)] = {
-                    'count': v['count'],
-                    'reset_date': v['reset_date'].isoformat(),
-                    'is_premium': v['is_premium']
-                }
-            with open('data/user_usage.json', 'w') as f:
-                json.dump(usage_data, f, indent=2)
                 
         except Exception as e:
             logger.error(f"Failed to save user data: {e}")
@@ -206,20 +178,19 @@ class JobCollectorBot:
         
         help_msg = (
             "📋 Available Commands:\n\n"
-            "🎯 **Keywords Management:**\n"
+            "🎯 Keywords Management:\n"
             "/keywords <word1, word2, ...> - Set your job keywords\n"
             "/add_keyword_to_list <keyword> - Add a keyword\n"
             "/delete_keyword_from_list <keyword> - Remove a keyword\n"
             "/my_keywords - Show your current keywords\n"
             "/purge_list - Clear all keywords\n\n"
-            "🚫 **Ignore Keywords:**\n"
+            "🚫 Ignore Keywords:\n"
             "/ignore_keywords <word1, word2, ...> - Set ignore keywords\n"
             "/add_ignore_keyword <keyword> - Add ignore keyword\n"
             "/delete_ignore_keyword <keyword> - Remove ignore keyword\n"
             "/my_ignore - Show ignore keywords\n"
             "/purge_ignore - Clear ignore list\n\n"
-            "📊 **Other Commands:**\n"
-            "/stats - Show your usage statistics\n"
+            "📊 Other Commands:\n"
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
             "💡 The bot monitors configured channels and forwards matching jobs automatically.\n"
@@ -235,17 +206,6 @@ class JobCollectorBot:
         if query.data == "menu_keywords":
             msg = "🎯 To set keywords, use:\n/keywords python, javascript, remote"
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-    
-    async def show_contact_info(self, query):
-        """Show contact information"""
-        msg = (
-            "💬 Need Help?\n\n"
-            "For support, questions, or feedback:\n\n"
-            "👤 Contact the admin mentioned in the bot description\n\n"
-            "We're here to help! 😊"
-        )
-        
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_ignore":
             msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior"
@@ -278,87 +238,16 @@ class JobCollectorBot:
         elif query.data == "menu_back":
             await query.edit_message_text("📋 Main Menu:", reply_markup=self.create_main_menu())
     
-    async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /stats command"""
-        if not self.is_private_chat(update):
-            return
-        
-        chat_id = update.effective_chat.id
-        
-        if chat_id not in self.user_usage:
-            self.user_usage[chat_id] = {
-                'count': 0,
-                'reset_date': datetime.now(),
-                'is_premium': False
-            }
-        
-        user_data = self.user_usage[chat_id]
-        remaining = max(0, self.free_daily_limit - user_data['count']) if not user_data['is_premium'] else "Unlimited"
-        
-        status = "💎 Premium" if user_data['is_premium'] else "🆓 Free"
-        
+    async def show_contact_info(self, query):
+        """Show contact information"""
         msg = (
-            f"📊 Your Statistics:\n\n"
-            f"Status: {status}\n"
-            f"Jobs forwarded today: {user_data['count']}\n"
-            f"Remaining today: {remaining}\n"
-            f"Keywords set: {len(self.user_keywords.get(chat_id, []))}\n"
-            f"Ignore keywords: {len(self.user_ignore_keywords.get(chat_id, []))}"
+            "💬 Need Help?\n\n"
+            "For support, questions, or feedback:\n\n"
+            "👤 Contact the admin mentioned in the bot description\n\n"
+            "We're here to help! 😊"
         )
         
-        await update.message.reply_text(msg)
-    
-    async def admin_upgrade_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin_upgrade command - for manual premium upgrades"""
-        if not self.is_private_chat(update):
-            return
-        
-        # Simple admin check - replace with your admin user ID
-        ADMIN_USER_ID = 123456789  # Replace with your Telegram user ID
-        
-        if update.effective_user.id != ADMIN_USER_ID:
-            await update.message.reply_text("❌ Access denied. Admin only command.")
-            return
-        
-        if not context.args or len(context.args) != 1:
-            await update.message.reply_text(
-                "Usage: /admin_upgrade <user_id>\n"
-                "Example: /admin_upgrade 987654321"
-            )
-            return
-        
-        try:
-            user_id = int(context.args[0])
-            
-            # Initialize user data if not exists
-            if user_id not in self.user_usage:
-                self.user_usage[user_id] = {
-                    'count': 0,
-                    'reset_date': datetime.now(),
-                    'is_premium': False
-                }
-            
-            # Upgrade to premium
-            self.user_usage[user_id]['is_premium'] = True
-            self.save_user_data()
-            
-            # Notify admin
-            await update.message.reply_text(f"✅ User {user_id} upgraded to Premium!")
-            
-            # Notify user
-            try:
-                await context.bot.send_message(
-                    chat_id=user_id,
-                    text="🎉 Congratulations! You've been upgraded to Premium!\n\n"
-                         "✅ You now have unlimited job forwards\n"
-                         "✅ All premium features are now active\n\n"
-                         "Thank you for your support!"
-                )
-            except Exception as e:
-                await update.message.reply_text(f"User upgraded, but couldn't notify them: {e}")
-                
-        except ValueError:
-            await update.message.reply_text("❌ Invalid user ID. Please provide a numeric user ID.")
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /keywords command"""
