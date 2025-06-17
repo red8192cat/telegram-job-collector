@@ -480,6 +480,12 @@ class JobCollectorBot:
         
         # Check against each user's keywords and forward if matches
         for user_chat_id, keywords in self.user_keywords.items():
+            # IMPORTANT: Only forward to private chats (positive user IDs)
+            # Skip if this is a group/channel ID (negative numbers or same as source)
+            if user_chat_id <= 0 or user_chat_id == chat_id:
+                logger.info(f"Skipping forward to {user_chat_id} - not a private chat or same as source")
+                continue
+            
             # Check user's daily limit
             if not self.check_user_limit(user_chat_id):
                 logger.info(f"User {user_chat_id} has reached daily limit")
@@ -496,16 +502,14 @@ class JobCollectorBot:
                 continue
             
             try:
-                # Forward the message directly to the user's private chat
+                # Forward the message directly to the user's private chat ONLY
                 await context.bot.forward_message(
                     chat_id=user_chat_id,
                     from_chat_id=chat_id,
                     message_id=message.message_id
                 )
                 
-                # No need to increment usage or check limits anymore
-                
-                logger.info(f"Forwarded job to user {user_chat_id}")
+                logger.info(f"Forwarded job to private user {user_chat_id}")
                 
                 # Small delay to avoid rate limiting
                 await asyncio.sleep(0.5)
@@ -549,6 +553,11 @@ class JobCollectorBot:
                         
                         # Check against each user's keywords
                         for user_chat_id, keywords in self.user_keywords.items():
+                            # IMPORTANT: Only forward to private chats (positive user IDs)
+                            # Skip if this is a group/channel ID (negative numbers or same as source)
+                            if user_chat_id <= 0 or user_chat_id == int(channel.replace('@', '').replace('-', '')):
+                                continue
+                            
                             # Check user's daily limit
                             if not self.check_user_limit(user_chat_id):
                                 continue
@@ -563,14 +572,14 @@ class JobCollectorBot:
                                 continue
                             
                             try:
-                                # Forward the message directly to the user's private chat
+                                # Forward the message directly to the user's private chat ONLY
                                 await self.app.bot.forward_message(
                                     chat_id=user_chat_id,
                                     from_chat_id=channel,
                                     message_id=message.message_id
                                 )
                                 
-                                logger.info(f"Forwarded job to user {user_chat_id}")
+                                logger.info(f"Forwarded job to private user {user_chat_id}")
                                 
                                 # Small delay to avoid rate limiting
                                 await asyncio.sleep(0.5)
