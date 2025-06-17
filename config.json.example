@@ -1,0 +1,7 @@
+{
+  "channels": [
+    "@example_jobs_channel",
+    "@another_hiring_channel",
+    "-1001234567890"
+  ]
+}
