@@ -136,34 +136,13 @@ class JobCollectorBot:
     
     def check_user_limit(self, chat_id: int) -> bool:
         """Check if user has reached daily limit"""
-        now = datetime.now()
-        
-        if chat_id not in self.user_usage:
-            self.user_usage[chat_id] = {
-                'count': 0,
-                'reset_date': now,
-                'is_premium': False
-            }
-        
-        user_data = self.user_usage[chat_id]
-        
-        # Reset count if it's a new day
-        if now.date() > user_data['reset_date'].date():
-            user_data['count'] = 0
-            user_data['reset_date'] = now
-        
-        # Premium users have unlimited access
-        if user_data['is_premium']:
-            return True
-        
-        # Check free limit
-        return user_data['count'] < self.free_daily_limit
+        # All users are premium now
+        return True
     
     def increment_user_usage(self, chat_id: int):
         """Increment user's daily usage count"""
-        if chat_id in self.user_usage:
-            self.user_usage[chat_id]['count'] += 1
-            self.save_user_data()
+        # No usage tracking needed since all users are premium
+        pass
     
     def create_main_menu(self):
         """Create main menu keyboard"""
@@ -172,8 +151,7 @@ class JobCollectorBot:
             [InlineKeyboardButton("🚫 Set Ignore Keywords", callback_data="menu_ignore")],
             [InlineKeyboardButton("📝 My Keywords", callback_data="menu_show_keywords"),
              InlineKeyboardButton("📋 My Ignore List", callback_data="menu_show_ignore")],
-            [InlineKeyboardButton("📊 Usage Stats", callback_data="menu_stats")],
-            [InlineKeyboardButton("💎 Go Premium", callback_data="menu_premium")],
+            [InlineKeyboardButton("💬 Contact Admin", callback_data="menu_contact")],
             [InlineKeyboardButton("❓ Help", callback_data="menu_help")]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -193,7 +171,6 @@ class JobCollectorBot:
         self.app.add_handler(CommandHandler("purge_ignore", self.purge_ignore_keywords_command))
         self.app.add_handler(CommandHandler("my_keywords", self.show_keywords_command))
         self.app.add_handler(CommandHandler("my_ignore", self.show_ignore_keywords_command))
-        self.app.add_handler(CommandHandler("stats", self.stats_command))
         
         # Callback query handler for menu buttons
         self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
@@ -209,8 +186,8 @@ class JobCollectorBot:
         welcome_msg = (
             "🤖 Welcome to Job Collector Bot!\n\n"
             "I help you collect job postings from configured channels based on your keywords.\n\n"
-            f"🆓 Free users get {self.free_daily_limit} job forwards per day\n"
-            "💎 Premium users get unlimited forwards\n\n"
+            "✅ All users get unlimited job forwards\n"
+            "✅ Advanced keyword filtering with ignore list\n\n"
             "Use the menu below to get started:"
         )
         await update.message.reply_text(welcome_msg, reply_markup=self.create_main_menu())
@@ -248,7 +225,7 @@ class JobCollectorBot:
             "💡 The bot monitors configured channels and forwards matching jobs automatically.\n"
             "🎯 Ignore keywords help filter out unwanted jobs (e.g., 'java' to avoid when searching 'javascript')."
         )
-        await update.message.reply_text(help_msg, parse_mode='Markdown')
+        await update.message.reply_text(help_msg)
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
@@ -258,6 +235,17 @@ class JobCollectorBot:
         if query.data == "menu_keywords":
             msg = "🎯 To set keywords, use:\n/keywords python, javascript, remote"
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+    
+    async def show_contact_info(self, query):
+        """Show contact information"""
+        msg = (
+            "💬 Need Help?\n\n"
+            "For support, questions, or feedback:\n\n"
+            "👤 Contact the admin mentioned in the bot description\n\n"
+            "We're here to help! 😊"
+        )
+        
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_ignore":
             msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior"
@@ -281,63 +269,14 @@ class JobCollectorBot:
                 msg = "You haven't set any ignore keywords yet!"
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
-        elif query.data == "menu_stats":
-            await self.show_stats(query)
-        
-        elif query.data == "menu_premium":
-            await self.show_premium_info(query)
+        elif query.data == "menu_contact":
+            await self.show_contact_info(query)
         
         elif query.data == "menu_help":
             await query.edit_message_text("📋 Use /help to see all available commands!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_back":
             await query.edit_message_text("📋 Main Menu:", reply_markup=self.create_main_menu())
-    
-    async def show_stats(self, query):
-        """Show user statistics"""
-        chat_id = query.from_user.id
-        
-        if chat_id not in self.user_usage:
-            self.user_usage[chat_id] = {
-                'count': 0,
-                'reset_date': datetime.now(),
-                'is_premium': False
-            }
-        
-        user_data = self.user_usage[chat_id]
-        remaining = max(0, self.free_daily_limit - user_data['count']) if not user_data['is_premium'] else "Unlimited"
-        
-        status = "💎 Premium" if user_data['is_premium'] else "🆓 Free"
-        
-        msg = (
-            f"📊 Your Statistics:\n\n"
-            f"Status: {status}\n"
-            f"Jobs forwarded today: {user_data['count']}\n"
-            f"Remaining today: {remaining}\n"
-            f"Keywords set: {len(self.user_keywords.get(chat_id, []))}\n"
-            f"Ignore keywords: {len(self.user_ignore_keywords.get(chat_id, []))}"
-        )
-        
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-    
-    async def show_premium_info(self, query):
-        """Show premium information"""
-        msg = (
-            "💎 Premium Features:\n\n"
-            "✅ Unlimited job forwards\n"
-            "✅ Priority support\n"
-            "✅ Advanced filtering options\n"
-            "✅ Custom notifications\n\n"
-            "💰 Only $9.99/month\n\n"
-            "Contact @your_support_bot to upgrade!"
-        )
-        
-        keyboard = [
-            [InlineKeyboardButton("💳 Upgrade Now", url="https://t.me/your_support_bot")],
-            [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
-        ]
-        
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /stats command"""
@@ -368,6 +307,58 @@ class JobCollectorBot:
         )
         
         await update.message.reply_text(msg)
+    
+    async def admin_upgrade_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin_upgrade command - for manual premium upgrades"""
+        if not self.is_private_chat(update):
+            return
+        
+        # Simple admin check - replace with your admin user ID
+        ADMIN_USER_ID = 123456789  # Replace with your Telegram user ID
+        
+        if update.effective_user.id != ADMIN_USER_ID:
+            await update.message.reply_text("❌ Access denied. Admin only command.")
+            return
+        
+        if not context.args or len(context.args) != 1:
+            await update.message.reply_text(
+                "Usage: /admin_upgrade <user_id>\n"
+                "Example: /admin_upgrade 987654321"
+            )
+            return
+        
+        try:
+            user_id = int(context.args[0])
+            
+            # Initialize user data if not exists
+            if user_id not in self.user_usage:
+                self.user_usage[user_id] = {
+                    'count': 0,
+                    'reset_date': datetime.now(),
+                    'is_premium': False
+                }
+            
+            # Upgrade to premium
+            self.user_usage[user_id]['is_premium'] = True
+            self.save_user_data()
+            
+            # Notify admin
+            await update.message.reply_text(f"✅ User {user_id} upgraded to Premium!")
+            
+            # Notify user
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text="🎉 Congratulations! You've been upgraded to Premium!\n\n"
+                         "✅ You now have unlimited job forwards\n"
+                         "✅ All premium features are now active\n\n"
+                         "Thank you for your support!"
+                )
+            except Exception as e:
+                await update.message.reply_text(f"User upgraded, but couldn't notify them: {e}")
+                
+        except ValueError:
+            await update.message.reply_text("❌ Invalid user ID. Please provide a numeric user ID.")
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /keywords command"""
@@ -623,19 +614,9 @@ class JobCollectorBot:
                     message_id=message.message_id
                 )
                 
-                # Increment user's usage count
-                self.increment_user_usage(user_chat_id)
+                # No need to increment usage or check limits anymore
                 
                 logger.info(f"Forwarded job to user {user_chat_id}")
-                
-                # Check if user has reached limit and notify
-                if not self.check_user_limit(user_chat_id):
-                    limit_msg = (
-                        f"🚨 You've reached your daily limit of {self.free_daily_limit} job forwards!\n\n"
-                        "💎 Upgrade to Premium for unlimited forwards!\n"
-                        "Use /menu to learn more about Premium features."
-                    )
-                    await context.bot.send_message(chat_id=user_chat_id, text=limit_msg)
                 
                 # Small delay to avoid rate limiting
                 await asyncio.sleep(0.5)
@@ -699,9 +680,6 @@ class JobCollectorBot:
                                     from_chat_id=channel,
                                     message_id=message.message_id
                                 )
-                                
-                                # Increment user's usage count
-                                self.increment_user_usage(user_chat_id)
                                 
                                 logger.info(f"Forwarded job to user {user_chat_id}")
                                 
