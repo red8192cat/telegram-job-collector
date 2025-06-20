@@ -115,9 +115,9 @@ class SQLiteManager:
         
         await conn.commit()
     
-    async def _get_connection(self):
+    def _get_connection(self):
         if not self._initialized:
-            await self.initialize()
+            raise RuntimeError("Database not initialized. Call initialize() first.")
         return ConnectionContext(self._available_connections)
     
     async def close(self):
