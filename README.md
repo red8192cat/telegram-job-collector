@@ -28,7 +28,15 @@ A smart Telegram bot that automatically forwards job postings from monitored cha
    docker-compose up -d
    ```
 
-3. **Configure Channels**
+3. **Add Bot to Channels**
+   ```bash
+   # For each channel in config.json:
+   # 1. Add @Find_Me_A_Perfect_Job_bot as admin to the channel/group
+   # 2. Grant "Read Messages" permission (minimum required)
+   # 3. Bot will automatically start monitoring
+   ```
+
+4. **Configure Channels**
    ```json
    {
      "channels": [
@@ -163,6 +171,25 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 }
 ```
 
+**⚠️ Important:** The bot must be added as an **admin** to each channel/group with at least **"Read Messages"** permission to monitor job postings.
+
+### Bot Permissions Setup
+
+1. **For Public Channels:**
+   - Add `@Find_Me_A_Perfect_Job_bot` as admin
+   - Grant minimum permission: "Read Messages"
+
+2. **For Private Groups:**
+   - Add bot to the group
+   - Promote to admin with "Read Messages" permission
+   - Get group ID from bot logs or use [@userinfobot](https://t.me/userinfobot)
+
+3. **Permission Verification:**
+   ```bash
+   # Check bot logs to verify channel access
+   docker logs job-collector-bot | grep "Processing message from channel"
+   ```
+
 **Note:** Channel list reloads automatically every hour - no restart needed!
 
 ## 🔧 Advanced Features
@@ -180,6 +207,25 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 - **Channel monitoring** - Automatically picks up new channels from config
 - **Persistent storage** - All user preferences saved across restarts
 - **Error recovery** - Gracefully handles API limits and network issues
+
+## 🔧 Setup Requirements
+
+### Bot Permissions
+The bot **must be added as an admin** to each channel/group you want to monitor:
+
+| Channel Type | Setup Steps | Required Permission |
+|--------------|-------------|-------------------|
+| **Public Channel** | Add `@Find_Me_A_Perfect_Job_bot` as admin | Read Messages |
+| **Private Group** | Add bot → Promote to admin | Read Messages |
+| **Supergroup** | Add bot → Admin → Read Messages | Read Messages |
+
+### Getting Channel IDs
+```bash
+# For private groups, get the ID using:
+# 1. Add @userinfobot to the group
+# 2. Send any message - bot will show group ID
+# 3. Use the ID (including minus sign) in config.json
+```
 
 ## 🚀 Deployment
 
