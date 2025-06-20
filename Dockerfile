@@ -1,7 +1,7 @@
 FROM python:3.11-alpine
 WORKDIR /app
 # Install cron and other dependencies
-RUN apk add --no-cache dcron
+RUN apk add --no-cache dcron sqlite
 # Copy requirements first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
