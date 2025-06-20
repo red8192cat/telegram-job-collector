@@ -11,13 +11,12 @@ logger = logging.getLogger(__name__)
 
 class DataManager:
     def __init__(self):
-        self.user_keywords = {}  # {chat_id: [keywords]}
-        self.user_ignore_keywords = {}  # {chat_id: [ignore_keywords]}
+        self.user_keywords = {}
+        self.user_ignore_keywords = {}
         self.load_user_data()
     
     def load_user_data(self):
         """Load all user data from files"""
-        # Load keywords
         try:
             with open('data/user_keywords.json', 'r') as f:
                 self.user_keywords = json.load(f)
@@ -26,7 +25,6 @@ class DataManager:
             logger.info("user_keywords.json not found, starting with empty user list")
             self.user_keywords = {}
         
-        # Load ignore keywords
         try:
             with open('data/user_ignore_keywords.json', 'r') as f:
                 self.user_ignore_keywords = json.load(f)
@@ -40,11 +38,9 @@ class DataManager:
         try:
             os.makedirs('data', exist_ok=True)
             
-            # Save keywords
             with open('data/user_keywords.json', 'w') as f:
                 json.dump(self.user_keywords, f, indent=2)
             
-            # Save ignore keywords
             with open('data/user_ignore_keywords.json', 'w') as f:
                 json.dump(self.user_ignore_keywords, f, indent=2)
                 
@@ -92,7 +88,7 @@ class DataManager:
         self.save_user_data()
     
     def add_user_ignore_keyword(self, chat_id: int, keyword: str) -> bool:
-        """Add an ignore keyword for a user. Returns True if added, False if already exists"""
+        """Add an ignore keyword for a user"""
         if chat_id not in self.user_ignore_keywords:
             self.user_ignore_keywords[chat_id] = []
         
@@ -103,7 +99,7 @@ class DataManager:
         return False
     
     def remove_user_ignore_keyword(self, chat_id: int, keyword: str) -> bool:
-        """Remove an ignore keyword for a user. Returns True if removed, False if not found"""
+        """Remove an ignore keyword for a user"""
         if chat_id not in self.user_ignore_keywords:
             return False
         
@@ -114,7 +110,7 @@ class DataManager:
         return False
     
     def purge_user_ignore_keywords(self, chat_id: int) -> bool:
-        """Remove all ignore keywords for a user. Returns True if purged, False if none existed"""
+        """Remove all ignore keywords for a user"""
         if chat_id in self.user_ignore_keywords:
             del self.user_ignore_keywords[chat_id]
             self.save_user_data()
@@ -127,10 +123,8 @@ class DataManager:
     
     def check_user_limit(self, chat_id: int) -> bool:
         """Check if user has reached daily limit"""
-        # All users are premium now
         return True
     
     def increment_user_usage(self, chat_id: int):
         """Increment user's daily usage count"""
-        # No usage tracking needed since all users are premium
         pass
