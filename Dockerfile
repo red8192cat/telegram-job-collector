@@ -8,10 +8,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY src/ ./src/
 COPY config.json .
-COPY health_check.py .     # ← This line should be added
+COPY health_check.py .
 # Create data directory for persistent storage
 RUN mkdir -p /app/data
 # Set permissions for cron
 RUN chmod +x src/bot.py
+RUN chmod +x health_check.py
 EXPOSE 8080
 CMD ["python", "src/bot.py"]
