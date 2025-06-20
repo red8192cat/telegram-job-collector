@@ -6,13 +6,13 @@ import logging
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from storage.data_manager import DataManager
+from storage.sqlite_manager import SQLiteManager
 from utils.helpers import create_main_menu, create_back_menu, get_help_text, get_keywords_help, get_ignore_help, get_contact_info
 
 logger = logging.getLogger(__name__)
 
 class CallbackHandlers:
-    def __init__(self, data_manager: DataManager):
+    def __init__(self, data_manager: SQLiteManager):
         self.data_manager = data_manager
     
     def register(self, app):
@@ -35,7 +35,7 @@ class CallbackHandlers:
                 await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu())
             elif query.data == "menu_show_keywords":
                 chat_id = query.from_user.id
-                keywords = self.data_manager.get_user_keywords(chat_id)
+                keywords = await self.data_manager.get_user_keywords(chat_id)
                 if keywords:
                     msg = f"📝 Your keywords: {', '.join(keywords)}"
                 else:
@@ -43,7 +43,7 @@ class CallbackHandlers:
                 await query.edit_message_text(msg, reply_markup=create_back_menu())
             elif query.data == "menu_show_ignore":
                 chat_id = query.from_user.id
-                ignore_keywords = self.data_manager.get_user_ignore_keywords(chat_id)
+                ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
                 if ignore_keywords:
                     msg = f"🚫 Your ignore keywords: {', '.join(ignore_keywords)}"
                 else:

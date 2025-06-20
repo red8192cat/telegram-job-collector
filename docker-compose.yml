@@ -4,12 +4,19 @@ services:
     container_name: job-collector-bot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - DATABASE_PATH=/app/data/bot.db
+      - LOG_LEVEL=INFO
     volumes:
       - ./config.json:/app/config.json
       - ./data:/app/data
     restart: unless-stopped
     networks:
       - bot-network
+    healthcheck:
+      test: ["CMD", "python", "/app/health_check.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 networks:
   bot-network:
