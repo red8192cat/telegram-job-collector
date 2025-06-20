@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Set
 
@@ -30,7 +31,6 @@ class JobCollectorBot:
         self.user_keywords = {}  # {chat_id: [keywords]}
         self.user_ignore_keywords = {}  # {chat_id: [ignore_keywords]}
         self.channels_to_monitor = []
-        # Removed job_keywords - no pre-filtering needed
         
         # Load configuration
         self.load_config()
@@ -146,6 +146,7 @@ class JobCollectorBot:
         
         # Callback query handler for menu buttons
         self.app.add_handler(CallbackQueryHandler(self.handle_callback_query))
+        logger.info("Callback query handler registered")
         
         # Add message handler to process channel messages in real-time
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_channel_message))
@@ -153,7 +154,10 @@ class JobCollectorBot:
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         if not self.is_private_chat(update):
+            logger.info("Start command ignored - not a private chat")
             return
+        
+        logger.info(f"Start command from user {update.effective_user.id}")
         
         welcome_msg = (
             "🤖 Welcome to Job Collector Bot!\n\n"
@@ -162,14 +166,25 @@ class JobCollectorBot:
             "✅ Advanced keyword filtering with ignore list\n\n"
             "Use the menu below to get started:"
         )
-        await update.message.reply_text(welcome_msg, reply_markup=self.create_main_menu())
+        
+        menu_markup = self.create_main_menu()
+        logger.info(f"Sending welcome with menu to user {update.effective_user.id}")
+        
+        await update.message.reply_text(welcome_msg, reply_markup=menu_markup)
+        logger.info("Welcome message sent successfully")
     
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /menu command"""
         if not self.is_private_chat(update):
+            logger.info("Menu command ignored - not a private chat")
             return
         
-        await update.message.reply_text("📋 Main Menu:", reply_markup=self.create_main_menu())
+        logger.info(f"Sending menu to user {update.effective_user.id}")
+        menu_markup = self.create_main_menu()
+        logger.info(f"Created menu with {len(menu_markup.inline_keyboard)} rows of buttons")
+        
+        await update.message.reply_text("📋 Main Menu:", reply_markup=menu_markup)
+        logger.info("Menu sent successfully")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
@@ -205,43 +220,69 @@ class JobCollectorBot:
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
+        logger.info(f"Received callback query: {update.callback_query.data if update.callback_query else 'None'}")
+        
         query = update.callback_query
-        await query.answer()
-        
-        if query.data == "menu_keywords":
-            msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Mixed: python+\"data scientist\""
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-        
-        elif query.data == "menu_ignore":
-            msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior"
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-        
-        elif query.data == "menu_show_keywords":
-            chat_id = query.from_user.id
-            if chat_id in self.user_keywords and self.user_keywords[chat_id]:
-                keywords_str = ', '.join(self.user_keywords[chat_id])
-                msg = f"📝 Your keywords: {keywords_str}"
+        if not query:
+            logger.error("No callback query found in update")
+            return
+            
+        try:
+            await query.answer()
+            logger.info(f"Processing callback: {query.data}")
+            
+            if query.data == "menu_keywords":
+                msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Mixed: python+\"data scientist\""
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent keywords help")
+            
+            elif query.data == "menu_ignore":
+                msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior"
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent ignore keywords help")
+            
+            elif query.data == "menu_show_keywords":
+                chat_id = query.from_user.id
+                if chat_id in self.user_keywords and self.user_keywords[chat_id]:
+                    keywords_str = ', '.join(self.user_keywords[chat_id])
+                    msg = f"📝 Your keywords: {keywords_str}"
+                else:
+                    msg = "You haven't set any keywords yet!"
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent user keywords")
+            
+            elif query.data == "menu_show_ignore":
+                chat_id = query.from_user.id
+                if chat_id in self.user_ignore_keywords and self.user_ignore_keywords[chat_id]:
+                    ignore_str = ', '.join(self.user_ignore_keywords[chat_id])
+                    msg = f"🚫 Your ignore keywords: {ignore_str}"
+                else:
+                    msg = "You haven't set any ignore keywords yet!"
+                await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent user ignore keywords")
+            
+            elif query.data == "menu_contact":
+                await self.show_contact_info(query)
+                logger.info("Sent contact info")
+            
+            elif query.data == "menu_help":
+                await query.edit_message_text("📋 Use /help to see all available commands!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent help info")
+            
+            elif query.data == "menu_back":
+                await query.edit_message_text("📋 Main Menu:", reply_markup=self.create_main_menu())
+                logger.info("Sent main menu")
+            
             else:
-                msg = "You haven't set any keywords yet!"
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-        
-        elif query.data == "menu_show_ignore":
-            chat_id = query.from_user.id
-            if chat_id in self.user_ignore_keywords and self.user_ignore_keywords[chat_id]:
-                ignore_str = ', '.join(self.user_ignore_keywords[chat_id])
-                msg = f"🚫 Your ignore keywords: {ignore_str}"
-            else:
-                msg = "You haven't set any ignore keywords yet!"
-            await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-        
-        elif query.data == "menu_contact":
-            await self.show_contact_info(query)
-        
-        elif query.data == "menu_help":
-            await query.edit_message_text("📋 Use /help to see all available commands!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-        
-        elif query.data == "menu_back":
-            await query.edit_message_text("📋 Main Menu:", reply_markup=self.create_main_menu())
+                logger.warning(f"Unknown callback data: {query.data}")
+                await query.edit_message_text(f"❌ Unknown action: {query.data}\n\nUse /menu to start over.")
+                
+        except Exception as e:
+            logger.error(f"Error handling callback query {query.data}: {e}")
+            try:
+                await query.edit_message_text("❌ Something went wrong. Please try /menu again.")
+            except:
+                logger.error("Failed to send error message")
     
     async def show_contact_info(self, query):
         """Show contact information"""
@@ -262,7 +303,14 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide keywords: /keywords python, javascript, remote")
+            await update.message.reply_text(
+                "Please provide keywords:\n"
+                "/keywords python, \"project manager\", remote\n"
+                "/keywords python+\"data scientist\", react+senior\n\n"
+                "• Use + for AND logic (all parts must be present)\n"
+                "• Use \"quotes\" for exact phrases in order\n"
+                "• Mix them: python+\"machine learning\"+remote"
+            )
             return
         
         keywords_text = ' '.join(context.args)
@@ -310,7 +358,12 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide a keyword: /add_keyword_to_list python")
+            await update.message.reply_text(
+                "Please provide a keyword:\n"
+                "/add_keyword_to_list python\n"
+                "/add_keyword_to_list python+junior+remote\n"
+                "/add_keyword_to_list \"project manager\""
+            )
             return
         
         keyword = ' '.join(context.args).strip().lower()
@@ -508,8 +561,6 @@ class JobCollectorBot:
         
         logger.info(f"Processing message from channel: {channel_username}")
         
-        # Skip the job keywords check - process all messages
-        
         # Check against each user's keywords and forward if matches
         for user_chat_id, keywords in self.user_keywords.items():
             # IMPORTANT: Only forward to private chats (positive user IDs)
@@ -579,13 +630,11 @@ class JobCollectorBot:
                             messages.append(message)
                     
                     for message in messages:
-                        # Skip the job keywords check - process all messages
-                        
                         # Check against each user's keywords
                         for user_chat_id, keywords in self.user_keywords.items():
                             # IMPORTANT: Only forward to private chats (positive user IDs)
                             # Skip if this is a group/channel ID (negative numbers or same as source)
-                            if user_chat_id <= 0 or user_chat_id == int(channel.replace('@', '').replace('-', '')):
+                            if user_chat_id <= 0:
                                 continue
                             
                             # Check user's daily limit
