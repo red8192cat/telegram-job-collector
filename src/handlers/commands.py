@@ -91,7 +91,7 @@ class CommandHandlers:
             await update.message.reply_text("No valid keywords provided!")
             return
         
-        self.data_manager.set_user_keywords(chat_id, keywords)
+        await self.data_manager.set_user_keywords(chat_id, keywords)
         
         keywords_str = ', '.join(keywords)
         await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
@@ -114,7 +114,7 @@ class CommandHandlers:
             await update.message.reply_text("No valid ignore keywords provided!")
             return
         
-        self.data_manager.set_user_ignore_keywords(chat_id, keywords)
+        await self.data_manager.set_user_ignore_keywords(chat_id, keywords)
         
         keywords_str = ', '.join(keywords)
         await update.message.reply_text(f"✅ Ignore keywords set: {keywords_str}")
@@ -132,7 +132,7 @@ class CommandHandlers:
         
         keyword = ' '.join(context.args).strip().lower()
         
-        if self.data_manager.add_user_keyword(chat_id, keyword):
+        if await self.data_manager.add_user_keyword(chat_id, keyword):
             await update.message.reply_text(f"✅ Added keyword: {keyword}")
         else:
             await update.message.reply_text(f"Keyword '{keyword}' already in your list!")
@@ -150,7 +150,7 @@ class CommandHandlers:
         
         keyword = ' '.join(context.args).strip().lower()
         
-        if self.data_manager.add_user_ignore_keyword(chat_id, keyword):
+        if await self.data_manager.add_user_ignore_keyword(chat_id, keyword):
             await update.message.reply_text(f"✅ Added ignore keyword: {keyword}")
         else:
             await update.message.reply_text(f"Ignore keyword '{keyword}' already in your list!")
@@ -167,14 +167,14 @@ class CommandHandlers:
             return
         
         keyword_to_delete = ' '.join(context.args).strip().lower()
-        keywords = self.data_manager.get_user_keywords(chat_id)
+        keywords = await self.data_manager.get_user_keywords(chat_id)
         
         if not keywords:
             await update.message.reply_text("You don't have any keywords set!")
             return
         
         # First try exact match
-        if self.data_manager.remove_user_keyword(chat_id, keyword_to_delete):
+        if await self.data_manager.remove_user_keyword(chat_id, keyword_to_delete):
             await update.message.reply_text(f"✅ Removed keyword: {keyword_to_delete}")
             return
         
@@ -193,7 +193,7 @@ class CommandHandlers:
         if matching_patterns:
             # Remove all matching patterns
             for pattern in matching_patterns:
-                self.data_manager.remove_user_keyword(chat_id, pattern)
+                await self.data_manager.remove_user_keyword(chat_id, pattern)
             
             if len(matching_patterns) == 1:
                 await update.message.reply_text(f"✅ Removed pattern: {matching_patterns[0]}")
@@ -223,7 +223,7 @@ class CommandHandlers:
         
         keyword = ' '.join(context.args).strip().lower()
         
-        if self.data_manager.remove_user_ignore_keyword(chat_id, keyword):
+        if await self.data_manager.remove_user_ignore_keyword(chat_id, keyword):
             await update.message.reply_text(f"✅ Removed ignore keyword: {keyword}")
         else:
             await update.message.reply_text(f"Ignore keyword '{keyword}' not found in your list!")
@@ -235,7 +235,7 @@ class CommandHandlers:
         
         chat_id = update.effective_chat.id
         
-        if self.data_manager.purge_user_ignore_keywords(chat_id):
+        if await self.data_manager.purge_user_ignore_keywords(chat_id):
             await update.message.reply_text("✅ All ignore keywords cleared!")
         else:
             await update.message.reply_text("You don't have any ignore keywords set!")
@@ -246,7 +246,7 @@ class CommandHandlers:
             return
         
         chat_id = update.effective_chat.id
-        keywords = self.data_manager.get_user_keywords(chat_id)
+        keywords = await self.data_manager.get_user_keywords(chat_id)
         
         if keywords:
             keywords_str = ', '.join(keywords)
@@ -260,7 +260,7 @@ class CommandHandlers:
             return
         
         chat_id = update.effective_chat.id
-        ignore_keywords = self.data_manager.get_user_ignore_keywords(chat_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
         
         if ignore_keywords:
             ignore_str = ', '.join(ignore_keywords)

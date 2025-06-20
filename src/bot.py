@@ -13,7 +13,7 @@ from telegram.ext import Application
 from handlers.commands import CommandHandlers
 from handlers.callbacks import CallbackHandlers
 from handlers.messages import MessageHandlers
-from storage.data_manager import DataManager
+from storage.sqlite_manager import SQLiteManager
 from utils.config import ConfigManager
 
 # Configure logging
@@ -30,7 +30,8 @@ class JobCollectorBot:
         
         # Initialize managers
         self.config_manager = ConfigManager()
-        self.data_manager = DataManager()
+        db_path = os.getenv("DATABASE_PATH", "data/bot.db")
+        self.data_manager = SQLiteManager(db_path)
         
         # Initialize handlers
         self.command_handlers = CommandHandlers(self.data_manager)

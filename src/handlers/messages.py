@@ -44,19 +44,19 @@ class MessageHandlers:
         channel_display = f"@{channel_username}" if channel_username else str(chat_id)
         logger.info(f"Processing message from channel: {channel_display}")
         
-        all_users = self.data_manager.get_all_users_with_keywords()
+        all_users = await self.data_manager.get_all_users_with_keywords()
         
         for user_chat_id, keywords in all_users.items():
             if user_chat_id <= 0 or user_chat_id == chat_id:
                 continue
             
-            if not self.data_manager.check_user_limit(user_chat_id):
+            if not await self.data_manager.check_user_limit(user_chat_id):
                 continue
             
             if not self.keyword_matcher.matches_user_keywords(message.text, keywords):
                 continue
             
-            ignore_keywords = self.data_manager.get_user_ignore_keywords(user_chat_id)
+            ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
             if self.keyword_matcher.matches_ignore_keywords(message.text, ignore_keywords):
                 continue
             
@@ -81,7 +81,7 @@ class MessageHandlers:
         if not channels:
             return
         
-        all_users = self.data_manager.get_all_users_with_keywords()
+        all_users = await self.data_manager.get_all_users_with_keywords()
         if not all_users:
             return
         
@@ -101,13 +101,13 @@ class MessageHandlers:
                         if user_chat_id <= 0:
                             continue
                         
-                        if not self.data_manager.check_user_limit(user_chat_id):
+                        if not await self.data_manager.check_user_limit(user_chat_id):
                             continue
                         
                         if not self.keyword_matcher.matches_user_keywords(message.text, keywords):
                             continue
                         
-                        ignore_keywords = self.data_manager.get_user_ignore_keywords(user_chat_id)
+                        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
                         if self.keyword_matcher.matches_ignore_keywords(message.text, ignore_keywords):
                             continue
                         

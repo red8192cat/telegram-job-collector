@@ -35,7 +35,7 @@ class CallbackHandlers:
                 await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu())
             elif query.data == "menu_show_keywords":
                 chat_id = query.from_user.id
-                keywords = self.data_manager.get_user_keywords(chat_id)
+                keywords = await self.data_manager.get_user_keywords(chat_id)
                 if keywords:
                     msg = f"📝 Your keywords: {', '.join(keywords)}"
                 else:
@@ -43,7 +43,7 @@ class CallbackHandlers:
                 await query.edit_message_text(msg, reply_markup=create_back_menu())
             elif query.data == "menu_show_ignore":
                 chat_id = query.from_user.id
-                ignore_keywords = self.data_manager.get_user_ignore_keywords(chat_id)
+                ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
                 if ignore_keywords:
                     msg = f"🚫 Your ignore keywords: {', '.join(ignore_keywords)}"
                 else:
