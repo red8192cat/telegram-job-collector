@@ -31,7 +31,6 @@ class JobCollectorBot:
         self.user_keywords = {}  # {chat_id: [keywords]}
         self.user_ignore_keywords = {}  # {chat_id: [ignore_keywords]}
         self.channels_to_monitor = []
-        # Removed job_keywords - no pre-filtering needed
         
         # Load configuration
         self.load_config()
@@ -102,36 +101,6 @@ class JobCollectorBot:
         # Start the task
         asyncio.create_task(reload_task())
         logger.info("Config reload task started")
-        
-        # Set up bot menu commands (only if not set recently)
-        await self.setup_bot_menu_with_rate_limit()
-    
-    async def setup_bot_menu(self):
-        """Set up the bot menu commands that appear in Telegram"""
-        from telegram import BotCommand
-        
-        commands = [
-            BotCommand("start", "🚀 Start the bot and see welcome message"),
-            BotCommand("menu", "📋 Show interactive menu"),
-            BotCommand("keywords", "🎯 Set your search keywords"),
-            BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
-            BotCommand("my_keywords", "📝 Show your current keywords"),
-            BotCommand("my_ignore", "📋 Show your ignore keywords"),
-            BotCommand("add_keyword_to_list", "➕ Add a keyword"),
-            BotCommand("add_ignore_keyword", "➕ Add ignore keyword"),
-            BotCommand("purge_list", "🗑️ Clear all keywords"),
-            BotCommand("purge_ignore", "🗑️ Clear ignore keywords"),
-            BotCommand("help", "❓ Show help and examples")
-        ]
-        
-        try:
-            await self.app.bot.set_my_commands(commands)
-            logger.info("Bot menu commands set successfully")
-        except Exception as e:
-            logger.error(f"Failed to set bot menu commands: {e}")
-        
-        # Set up bot menu commands
-        await self.setup_bot_menu()
     
     def is_private_chat(self, update: Update) -> bool:
         """Check if message is from private chat"""
@@ -334,7 +303,14 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide keywords: /keywords python, javascript, remote")
+            await update.message.reply_text(
+                "Please provide keywords:\n"
+                "/keywords python, \"project manager\", remote\n"
+                "/keywords python+\"data scientist\", react+senior\n\n"
+                "• Use + for AND logic (all parts must be present)\n"
+                "• Use \"quotes\" for exact phrases in order\n"
+                "• Mix them: python+\"machine learning\"+remote"
+            )
             return
         
         keywords_text = ' '.join(context.args)
@@ -382,7 +358,12 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide a keyword: /add_keyword_to_list python")
+            await update.message.reply_text(
+                "Please provide a keyword:\n"
+                "/add_keyword_to_list python\n"
+                "/add_keyword_to_list python+junior+remote\n"
+                "/add_keyword_to_list \"project manager\""
+            )
             return
         
         keyword = ' '.join(context.args).strip().lower()
@@ -580,8 +561,6 @@ class JobCollectorBot:
         
         logger.info(f"Processing message from channel: {channel_username}")
         
-        # Skip the job keywords check - process all messages
-        
         # Check against each user's keywords and forward if matches
         for user_chat_id, keywords in self.user_keywords.items():
             # IMPORTANT: Only forward to private chats (positive user IDs)
@@ -651,13 +630,11 @@ class JobCollectorBot:
                             messages.append(message)
                     
                     for message in messages:
-                        # Skip the job keywords check - process all messages
-                        
                         # Check against each user's keywords
                         for user_chat_id, keywords in self.user_keywords.items():
                             # IMPORTANT: Only forward to private chats (positive user IDs)
                             # Skip if this is a group/channel ID (negative numbers or same as source)
-                            if user_chat_id <= 0 or user_chat_id == int(channel.replace('@', '').replace('-', '')):
+                            if user_chat_id <= 0:
                                 continue
                             
                             # Check user's daily limit
