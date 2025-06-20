@@ -283,6 +283,7 @@ class JobCollectorBot:
                     "• AND: python+junior+remote (all 3 must be present)\n"
                     "• Exact: \"project manager\" (exact order)\n"
                     "• Wildcard: manag* (matches manager, managing, management)\n"
+                    "• Multi-wildcard: \"support* engineer*\" (support + engineering)\n"
                     "• Mixed: python+\"project manag*\"+remote"
                 )
                 await query.edit_message_text(help_msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
@@ -546,9 +547,9 @@ class JobCollectorBot:
             # No wildcard, simple substring match
             return pattern in text
         
-        # Handle wildcard patterns
+        # Handle patterns with wildcards
         if pattern.endswith('*'):
-            # Remove the * and check if any word in text starts with the pattern
+            # Single wildcard at the end
             prefix = pattern[:-1]
             if not prefix:  # Just "*" is not valid
                 return False
@@ -556,9 +557,41 @@ class JobCollectorBot:
             # Split text into words and check if any word starts with the prefix
             words = re.findall(r'\b\w+', text)
             return any(word.startswith(prefix) for word in words)
+        
+        elif ' ' in pattern and '*' in pattern:
+            # Multiple words with wildcards (e.g., "support* engineer*")
+            pattern_words = pattern.split()
+            text_words = re.findall(r'\b\w+', text.lower())
+            
+            # Try to find the pattern sequence in text
+            for i in range(len(text_words) - len(pattern_words) + 1):
+                match_found = True
+                for j, pattern_word in enumerate(pattern_words):
+                    text_word = text_words[i + j]
+                    
+                    if pattern_word.endswith('*'):
+                        # Wildcard match
+                        prefix = pattern_word[:-1]
+                        if prefix and not text_word.startswith(prefix):
+                            match_found = False
+                            break
+                    else:
+                        # Exact word match
+                        if pattern_word != text_word:
+                            match_found = False
+                            break
+                
+                if match_found:
+                    return True
+            
+            return False
+        
         else:
-            # Wildcard not at the end, treat as literal (shouldn't happen with our rules)
-            return pattern.replace('*', '') in text
+            # Wildcard in middle of single word or other cases
+            if '*' in pattern:
+                # For now, treat as literal (could be enhanced later)
+                return pattern.replace('*', '') in text
+            return pattern in text
     
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
         """Check if message matches user's keywords with AND logic, exact phrase support, and wildcards"""
