@@ -101,6 +101,21 @@ class JobCollectorBot:
         # Start the task
         asyncio.create_task(reload_task())
         logger.info("Config reload task started")
+        
+        # Clear any old bot menu commands
+        await self.clear_bot_menu()
+    
+    async def clear_bot_menu(self):
+        """Clear the bot menu commands"""
+        try:
+            # Set empty commands list to clear the menu
+            await self.app.bot.set_my_commands([])
+            logger.info("Bot menu commands cleared successfully")
+        except Exception as e:
+            logger.warning(f"Could not clear bot menu commands: {e}")
+        
+        # Clear any old bot menu commands
+        await self.clear_bot_menu()
     
     def is_private_chat(self, update: Update) -> bool:
         """Check if message is from private chat"""
