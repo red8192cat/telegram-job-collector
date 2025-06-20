@@ -207,10 +207,11 @@ class JobCollectorBot:
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
             "💡 Keyword Types:\n"
-            "• Single words: python, javascript, remote\n"
-            "• AND logic: python+junior+remote (all 3 must be present)\n"
-            "• Exact phrases: \"project manager\" (exact order)\n"
-            "• Mixed: python+\"project manager\"+remote\n"
+            "• Single: python, javascript, remote\n"
+            "• AND: python+junior+remote (all 3 must be present)\n"
+            "• Exact: \"project manager\" (exact order)\n"
+            "• Wildcard: manag* (matches manager, managing, management)\n"
+            "• Mixed: python+\"project manag*\"+remote\n"
             "• Ignore keywords help filter out unwanted messages\n\n"
             "🎯 The bot forwards ALL messages that match your keywords!"
         )
@@ -230,12 +231,12 @@ class JobCollectorBot:
             logger.info(f"Processing callback: {query.data}")
             
             if query.data == "menu_keywords":
-                msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Mixed: python+\"data scientist\""
+                msg = "🎯 To set keywords, use:\n/keywords python, \"project manag*\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Wildcard: manag*\n• Mixed: python+\"data manag*\"\n\n💡 /keywords overwrites your current list"
                 await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
                 logger.info("Sent keywords help")
             
             elif query.data == "menu_ignore":
-                msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior"
+                msg = "🚫 To set ignore keywords, use:\n/ignore_keywords java, php, senior\n\n💡 /ignore_keywords overwrites your current list\n🗑️ Use /purge_ignore to clear all ignore keywords"
                 await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
                 logger.info("Sent ignore keywords help")
             
@@ -377,7 +378,7 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-                            await update.message.reply_text(
+            await update.message.reply_text(
                 "Please provide a keyword:\n"
                 "/add_keyword_to_list python\n"
                 "/add_keyword_to_list python+junior+remote\n"
@@ -539,6 +540,26 @@ class JobCollectorBot:
         else:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
     
+    def matches_with_wildcard(self, text: str, pattern: str) -> bool:
+        """Check if text matches pattern with wildcard support (* at word endings only)"""
+        if '*' not in pattern:
+            # No wildcard, simple substring match
+            return pattern in text
+        
+        # Handle wildcard patterns
+        if pattern.endswith('*'):
+            # Remove the * and check if any word in text starts with the pattern
+            prefix = pattern[:-1]
+            if not prefix:  # Just "*" is not valid
+                return False
+            
+            # Split text into words and check if any word starts with the prefix
+            words = re.findall(r'\b\w+', text)
+            return any(word.startswith(prefix) for word in words)
+        else:
+            # Wildcard not at the end, treat as literal (shouldn't happen with our rules)
+            return pattern.replace('*', '') in text
+    
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
         """Check if message matches user's keywords with AND logic, exact phrase support, and wildcards"""
         text_lower = message_text.lower()
@@ -578,27 +599,6 @@ class JobCollectorBot:
                     return True
         
         return False
-    
-    def matches_with_wildcard(self, text: str, pattern: str) -> bool:
-        """Check if text matches pattern with wildcard support (* at word endings only)"""
-        if '*' not in pattern:
-            # No wildcard, simple substring match
-            return pattern in text
-        
-        # Handle wildcard patterns
-        if pattern.endswith('*'):
-            # Remove the * and check if any word in text starts with the pattern
-            prefix = pattern[:-1]
-            if not prefix:  # Just "*" is not valid
-                return False
-            
-            # Split text into words and check if any word starts with the prefix
-            import re
-            words = re.findall(r'\b\w+', text)
-            return any(word.startswith(prefix) for word in words)
-        else:
-            # Wildcard not at the end, treat as literal (shouldn't happen with our rules)
-            return pattern.replace('*', '') in text
     
     def matches_ignore_keywords(self, message_text: str, ignore_keywords: List[str]) -> bool:
         """Check if message matches ignore keywords with AND logic, exact phrase support, and wildcards"""
