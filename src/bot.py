@@ -30,7 +30,7 @@ class JobCollectorBot:
         self.user_keywords = {}  # {chat_id: [keywords]}
         self.user_ignore_keywords = {}  # {chat_id: [ignore_keywords]}
         self.channels_to_monitor = []
-        self.job_keywords = ['job', 'hiring', 'vacancy', 'position', 'remote', 'work', 'developer', 'engineer', 'programmer']
+        # Removed job_keywords - no pre-filtering needed
         
         # Load configuration
         self.load_config()
@@ -179,7 +179,7 @@ class JobCollectorBot:
         help_msg = (
             "📋 Available Commands:\n\n"
             "🎯 Keywords Management:\n"
-            "/keywords <word1, word2, ...> - Set your job keywords\n"
+            "/keywords <word1, word2, ...> - Set your keywords\n"
             "/add_keyword_to_list <keyword> - Add a keyword\n"
             "/delete_keyword_from_list <keyword> - Remove a keyword\n"
             "/my_keywords - Show your current keywords\n"
@@ -193,8 +193,13 @@ class JobCollectorBot:
             "📊 Other Commands:\n"
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
-            "💡 The bot monitors configured channels and forwards matching jobs automatically.\n"
-            "🎯 Ignore keywords help filter out unwanted jobs (e.g., 'java' to avoid when searching 'javascript')."
+            "💡 Keyword Types:\n"
+            "• Single words: python, javascript, remote\n"
+            "• AND logic: python+junior+remote (all 3 must be present)\n"
+            "• Exact phrases: \"project manager\" (exact order)\n"
+            "• Mixed: python+\"project manager\"+remote\n"
+            "• Ignore keywords help filter out unwanted messages\n\n"
+            "🎯 The bot forwards ALL messages that match your keywords!"
         )
         await update.message.reply_text(help_msg)
     
@@ -204,7 +209,7 @@ class JobCollectorBot:
         await query.answer()
         
         if query.data == "menu_keywords":
-            msg = "🎯 To set keywords, use:\n/keywords python, javascript, remote"
+            msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Mixed: python+\"data scientist\""
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_ignore":
@@ -437,15 +442,45 @@ class JobCollectorBot:
         else:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
     
-    def is_job_message(self, message_text: str) -> bool:
-        """Check if message contains job-related keywords"""
-        text_lower = message_text.lower()
-        return any(keyword in text_lower for keyword in self.job_keywords)
-    
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
-        """Check if message matches user's keywords"""
+        """Check if message matches user's keywords with AND logic and exact phrase support"""
         text_lower = message_text.lower()
-        return any(keyword in text_lower for keyword in user_keywords)
+        
+        for keyword_pattern in user_keywords:
+            # Check if this is an exact phrase (wrapped in quotes)
+            if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
+                # Extract the phrase without quotes
+                exact_phrase = keyword_pattern[1:-1].strip()
+                if exact_phrase in text_lower:
+                    return True
+            
+            # Check if this is an AND pattern (contains +)
+            elif '+' in keyword_pattern:
+                # Split by + and process each part
+                required_parts = [part.strip() for part in keyword_pattern.split('+') if part.strip()]
+                all_parts_match = True
+                
+                for part in required_parts:
+                    # Check if this part is an exact phrase
+                    if part.startswith('"') and part.endswith('"'):
+                        exact_phrase = part[1:-1].strip()
+                        if exact_phrase not in text_lower:
+                            all_parts_match = False
+                            break
+                    else:
+                        # Regular word match
+                        if part not in text_lower:
+                            all_parts_match = False
+                            break
+                
+                if all_parts_match:
+                    return True
+            else:
+                # Simple single keyword match
+                if keyword_pattern in text_lower:
+                    return True
+        
+        return False
     
     def matches_ignore_keywords(self, message_text: str, ignore_keywords: List[str]) -> bool:
         """Check if message matches ignore keywords"""
@@ -473,10 +508,7 @@ class JobCollectorBot:
         
         logger.info(f"Processing message from channel: {channel_username}")
         
-        # Check if it's a job-related message
-        if not self.is_job_message(message.text):
-            logger.info("Message doesn't contain job keywords")
-            return
+        # Skip the job keywords check - process all messages
         
         # Check against each user's keywords and forward if matches
         for user_chat_id, keywords in self.user_keywords.items():
@@ -547,9 +579,7 @@ class JobCollectorBot:
                             messages.append(message)
                     
                     for message in messages:
-                        # Check if it's a job-related message
-                        if not self.is_job_message(message.text):
-                            continue
+                        # Skip the job keywords check - process all messages
                         
                         # Check against each user's keywords
                         for user_chat_id, keywords in self.user_keywords.items():
