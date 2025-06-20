@@ -247,13 +247,15 @@ class JobCollectorBot:
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
             "💡 Keyword Types:\n"
+            "• Required: [remote], [senior] (MUST be in every message)\n"
             "• Single: python, javascript, remote\n"
             "• AND: python+junior+remote (all 3 must be present)\n"
             "• Exact: \"project manager\" (exact order)\n"
             "• Wildcard: manag* (matches manager, managing, management)\n"
-            "• Mixed: python+\"project manag*\"+remote\n"
+            "• Mixed: [remote], python+\"project manag*\", linux\n"
             "• Ignore keywords help filter out unwanted messages\n\n"
-            "🎯 The bot forwards ALL messages that match your keywords!"
+            "🎯 Logic: (ALL required keywords) AND (at least one optional keyword)\n"
+            "Example: [remote], linux, python → needs 'remote' AND ('linux' OR 'python')"
         )
         await update.message.reply_text(help_msg)
     
@@ -271,7 +273,7 @@ class JobCollectorBot:
             logger.info(f"Processing callback: {query.data}")
             
             if query.data == "menu_keywords":
-                msg = "🎯 To set keywords, use:\n/keywords python, \"project manag*\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Wildcard: manag*\n• Mixed: python+\"data manag*\"\n\n💡 /keywords overwrites your current list"
+                msg = "🎯 To set keywords, use:\n/keywords [remote|online], python, \"project manag*\"\n/keywords [remote], [senior|lead], python+\"data scientist\"\n\nTypes:\n• Required: [remote] (MUST be in every message)\n• Required OR: [remote|online] (either must be present)\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Wildcard: manag*\n• Mixed: [remote|online], python+\"data manag*\"\n\n💡 Logic: (ALL required) AND (at least one optional)"
                 await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
                 logger.info("Sent keywords help")
             
@@ -319,12 +321,14 @@ class JobCollectorBot:
                     "/my_ignore - Show ignore keywords\n"
                     "/purge_ignore - Clear all ignore keywords\n\n"
                     "💡 Keyword Types:\n"
-                    "• Single: python, javascript, remote\n"
+                    "• Required: [remote], [remote|online] (MUST be in every message)\n"
+                    "• Single: python, javascript, linux\n"
                     "• AND: python+junior+remote (all 3 must be present)\n"
                     "• Exact: \"project manager\" (exact order)\n"
                     "• Wildcard: manag* (matches manager, managing, management)\n"
                     "• Multi-wildcard: \"support* engineer*\" (support + engineering)\n"
-                    "• Mixed: python+\"project manag*\"+remote"
+                    "• Mixed: [remote|online], python+\"project manag*\", linux\n\n"
+                    "📝 Required OR: [remote|online] = 'remote' OR 'online' must be present"
                 )
                 await query.edit_message_text(help_msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
                 logger.info("Sent help content")
@@ -365,12 +369,14 @@ class JobCollectorBot:
         if not context.args:
             await update.message.reply_text(
                 "Please provide keywords:\n"
-                "/keywords python, \"project manag*\", remote\n"
-                "/keywords python+\"data scientist\", react+senior\n\n"
+                "/keywords [remote|online], python, \"project manag*\"\n"
+                "/keywords [remote], [senior|lead], python+\"data scientist\"\n\n"
+                "• Use [brackets] for REQUIRED keywords (must be in every message)\n"
+                "• Use [word1|word2] for required OR (either word1 OR word2 must be present)\n"
                 "• Use + for AND logic (all parts must be present)\n"
                 "• Use \"quotes\" for exact phrases in order\n"
                 "• Use * for wildcards at word endings\n"
-                "• Mix them: python+\"machine learn*\"+remote"
+                "• Logic: (ALL required) AND (at least one optional)"
             )
             return
         
@@ -421,7 +427,7 @@ class JobCollectorBot:
         if not context.args:
             await update.message.reply_text(
                 "Please provide a keyword:\n"
-                "/add_keyword_to_list python\n"
+                "/add_keyword_to_list [remote|online]\n"
                 "/add_keyword_to_list python+junior+remote\n"
                 "/add_keyword_to_list \"project manag*\"\n"
                 "/add_keyword_to_list develop*"
@@ -675,44 +681,94 @@ class JobCollectorBot:
             return pattern_lower in text_lower
     
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
-        """Check if message matches user's keywords with AND logic, exact phrase support, and wildcards"""
+        """Check if message matches user's keywords with AND logic, exact phrase support, wildcards, and required keywords"""
         text_lower = message_text.lower()
         
+        # Separate required keywords (in brackets) from optional keywords
+        required_keywords = []
+        optional_keywords = []
+        
         for keyword_pattern in user_keywords:
-            # Check if this is an exact phrase (wrapped in quotes)
-            if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
-                # Extract the phrase without quotes
-                exact_phrase = keyword_pattern[1:-1].strip()
-                if self.matches_with_wildcard(text_lower, exact_phrase):
+            # Check if this is a required keyword (wrapped in brackets)
+            if keyword_pattern.startswith('[') and keyword_pattern.endswith(']'):
+                # Extract the required keyword without brackets
+                required_keyword = keyword_pattern[1:-1].strip()
+                if required_keyword:  # Only add non-empty required keywords
+                    required_keywords.append(required_keyword)
+            else:
+                # Regular optional keyword
+                optional_keywords.append(keyword_pattern)
+        
+        logger.debug(f"Required keywords: {required_keywords}")
+        logger.debug(f"Optional keywords: {optional_keywords}")
+        
+        # First, check ALL required keywords must be present
+        for required_pattern in required_keywords:
+            if not self._matches_required_pattern(text_lower, required_pattern):
+                logger.debug(f"Required keyword not found: {required_pattern}")
+                return False
+        
+        # If no optional keywords, just check required keywords (all must be met)
+        if not optional_keywords:
+            logger.debug("No optional keywords, only required - all required keywords matched")
+            return len(required_keywords) > 0
+        
+        # Check if at least one optional keyword matches
+        for keyword_pattern in optional_keywords:
+            if self._matches_single_pattern(text_lower, keyword_pattern):
+                logger.debug(f"Optional keyword matched: {keyword_pattern}")
+                return True
+        
+        logger.debug("No optional keywords matched")
+        return False
+    
+    def _matches_required_pattern(self, text_lower: str, required_pattern: str) -> bool:
+        """Helper method to match a required keyword pattern (supports OR logic with |)"""
+        # Check if this required pattern has OR logic (contains |)
+        if '|' in required_pattern:
+            # Split by | and check if ANY of the parts match
+            or_parts = [part.strip() for part in required_pattern.split('|') if part.strip()]
+            logger.debug(f"Required OR pattern: {or_parts}")
+            
+            for part in or_parts:
+                if self._matches_single_pattern(text_lower, part):
+                    logger.debug(f"Required OR part matched: {part}")
                     return True
             
-            # Check if this is an AND pattern (contains +)
-            elif '+' in keyword_pattern:
-                # Split by + and process each part
-                required_parts = [part.strip() for part in keyword_pattern.split('+') if part.strip()]
-                all_parts_match = True
-                
-                for part in required_parts:
-                    # Check if this part is an exact phrase
-                    if part.startswith('"') and part.endswith('"'):
-                        exact_phrase = part[1:-1].strip()
-                        if not self.matches_with_wildcard(text_lower, exact_phrase):
-                            all_parts_match = False
-                            break
-                    else:
-                        # Regular word match with wildcard support
-                        if not self.matches_with_wildcard(text_lower, part):
-                            all_parts_match = False
-                            break
-                
-                if all_parts_match:
-                    return True
-            else:
-                # Simple single keyword match with wildcard support
-                if self.matches_with_wildcard(text_lower, keyword_pattern):
-                    return True
+            logger.debug("No required OR parts matched")
+            return False
+        else:
+            # Single required pattern
+            return self._matches_single_pattern(text_lower, required_pattern)
+    
+    def _matches_single_pattern(self, text_lower: str, keyword_pattern: str) -> bool:
+        """Helper method to match a single keyword pattern"""
+        # Check if this is an exact phrase (wrapped in quotes)
+        if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
+            # Extract the phrase without quotes
+            exact_phrase = keyword_pattern[1:-1].strip()
+            return self.matches_with_wildcard(text_lower, exact_phrase)
         
-        return False
+        # Check if this is an AND pattern (contains +)
+        elif '+' in keyword_pattern:
+            # Split by + and process each part
+            required_parts = [part.strip() for part in keyword_pattern.split('+') if part.strip()]
+            
+            for part in required_parts:
+                # Check if this part is an exact phrase
+                if part.startswith('"') and part.endswith('"'):
+                    exact_phrase = part[1:-1].strip()
+                    if not self.matches_with_wildcard(text_lower, exact_phrase):
+                        return False
+                else:
+                    # Regular word match with wildcard support
+                    if not self.matches_with_wildcard(text_lower, part):
+                        return False
+            
+            return True
+        else:
+            # Simple single keyword match with wildcard support
+            return self.matches_with_wildcard(text_lower, keyword_pattern)
     
     def matches_ignore_keywords(self, message_text: str, ignore_keywords: List[str]) -> bool:
         """Check if message matches ignore keywords with AND logic, exact phrase support, and wildcards"""
