@@ -264,4 +264,6 @@ class CommandHandlers:
         
         if ignore_keywords:
             ignore_str = ', '.join(ignore_keywords)
-            await update.message.reply
+            await update.message.reply_text(f"🚫 Your ignore keywords: {ignore_str}")
+        else:
+            await update.message.reply_text("You haven't set any ignore keywords yet!")

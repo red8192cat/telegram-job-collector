@@ -32,7 +32,7 @@ class SQLiteManager:
             await self._configure_connection(conn)
             await self._available_connections.put(conn)
     
-        # Mark as initialized BEFORE using _get_connection()
+        # Set initialized flag BEFORE using any connections
         self._initialized = True
     
         # Initialize schema
@@ -131,10 +131,6 @@ class SQLiteManager:
     
     async def ensure_user_exists(self, user_id: int):
         """Ensure user exists in database"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             await conn.execute("""
                 INSERT OR IGNORE INTO users (id, last_active) 
@@ -148,10 +144,6 @@ class SQLiteManager:
     
     async def get_user_keywords(self, user_id: int) -> List[str]:
         """Get keywords for a specific user"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             async with conn.execute(
                 "SELECT keyword FROM user_keywords WHERE user_id = ? ORDER BY created_at",
@@ -164,10 +156,6 @@ class SQLiteManager:
         """Set keywords for a specific user (replaces all existing)"""
         await self.ensure_user_exists(user_id)
         
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             await conn.execute("BEGIN TRANSACTION")
             try:
@@ -186,10 +174,6 @@ class SQLiteManager:
         """Add a keyword for a user"""
         await self.ensure_user_exists(user_id)
         
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             try:
                 await conn.execute(
@@ -203,10 +187,6 @@ class SQLiteManager:
     
     async def remove_user_keyword(self, user_id: int, keyword: str) -> bool:
         """Remove a keyword for a user"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             cursor = await conn.execute(
                 "DELETE FROM user_keywords WHERE user_id = ? AND keyword = ?",
@@ -217,10 +197,6 @@ class SQLiteManager:
     
     async def get_user_ignore_keywords(self, user_id: int) -> List[str]:
         """Get ignore keywords for a specific user"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             async with conn.execute(
                 "SELECT keyword FROM user_ignore_keywords WHERE user_id = ? ORDER BY created_at",
@@ -233,10 +209,6 @@ class SQLiteManager:
         """Set ignore keywords for a specific user"""
         await self.ensure_user_exists(user_id)
         
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             await conn.execute("BEGIN TRANSACTION")
             try:
@@ -255,10 +227,6 @@ class SQLiteManager:
         """Add an ignore keyword for a user"""
         await self.ensure_user_exists(user_id)
         
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             try:
                 await conn.execute(
@@ -272,10 +240,6 @@ class SQLiteManager:
     
     async def remove_user_ignore_keyword(self, user_id: int, keyword: str) -> bool:
         """Remove an ignore keyword for a user"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             cursor = await conn.execute(
                 "DELETE FROM user_ignore_keywords WHERE user_id = ? AND keyword = ?",
@@ -286,10 +250,6 @@ class SQLiteManager:
     
     async def purge_user_ignore_keywords(self, user_id: int) -> bool:
         """Remove all ignore keywords for a user"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             cursor = await conn.execute(
                 "DELETE FROM user_ignore_keywords WHERE user_id = ?",
@@ -300,10 +260,6 @@ class SQLiteManager:
     
     async def get_all_users_with_keywords(self) -> Dict[int, List[str]]:
         """Get all users who have keywords set"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             async with conn.execute("""
                 SELECT user_id, GROUP_CONCAT(keyword, '|||') as keywords
@@ -322,10 +278,6 @@ class SQLiteManager:
     
     async def log_message_forward(self, user_id: int, channel_id: int, message_id: int):
         """Log a forwarded message"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             try:
                 await conn.execute("BEGIN TRANSACTION")
@@ -350,10 +302,6 @@ class SQLiteManager:
     
     async def cleanup_old_data(self, days: int = 30):
         """Clean up old message forward logs"""
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             cursor = await conn.execute(
                 "DELETE FROM message_forwards WHERE forwarded_at < datetime('now', '-{} days')".format(days)
