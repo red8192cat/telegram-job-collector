@@ -266,8 +266,28 @@ class JobCollectorBot:
                 logger.info("Sent contact info")
             
             elif query.data == "menu_help":
-                await query.edit_message_text("📋 Use /help to see all available commands!", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
-                logger.info("Sent help info")
+                help_msg = (
+                    "📋 Available Commands:\n\n"
+                    "🎯 Keywords Management:\n"
+                    "/keywords <word1, word2, ...> - Set your keywords\n"
+                    "/add_keyword_to_list <keyword> - Add a keyword\n"
+                    "/delete_keyword_from_list <keyword> - Remove a keyword\n"
+                    "/my_keywords - Show your current keywords\n"
+                    "/purge_list - Clear all keywords\n\n"
+                    "🚫 Ignore Keywords:\n"
+                    "/ignore_keywords <word1, word2, ...> - Set ignore keywords\n"
+                    "/add_ignore_keyword <keyword> - Add ignore keyword\n"
+                    "/delete_ignore_keyword <keyword> - Remove ignore keyword\n"
+                    "/my_ignore - Show ignore keywords\n"
+                    "/purge_ignore - Clear ignore list\n\n"
+                    "💡 Keyword Types:\n"
+                    "• Single: python, javascript, remote\n"
+                    "• AND: python+junior+remote (all 3 must be present)\n"
+                    "• Exact: \"project manager\" (exact order)\n"
+                    "• Mixed: python+\"project manager\"+remote"
+                )
+                await query.edit_message_text(help_msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
+                logger.info("Sent help content")
             
             elif query.data == "menu_back":
                 await query.edit_message_text("📋 Main Menu:", reply_markup=self.create_main_menu())
@@ -412,14 +432,52 @@ class JobCollectorBot:
             await update.message.reply_text("Please provide a keyword: /delete_keyword_from_list python")
             return
         
-        keyword = ' '.join(context.args).strip().lower()
+        keyword_to_delete = ' '.join(context.args).strip().lower()
         
-        if chat_id in self.user_keywords and keyword in self.user_keywords[chat_id]:
-            self.user_keywords[chat_id].remove(keyword)
+        if chat_id not in self.user_keywords:
+            await update.message.reply_text("You don't have any keywords set!")
+            return
+        
+        # First try exact match
+        if keyword_to_delete in self.user_keywords[chat_id]:
+            self.user_keywords[chat_id].remove(keyword_to_delete)
             self.save_user_data()
-            await update.message.reply_text(f"✅ Removed keyword: {keyword}")
+            await update.message.reply_text(f"✅ Removed keyword: {keyword_to_delete}")
+            return
+        
+        # If no exact match, look for patterns containing this keyword
+        matching_patterns = []
+        for pattern in self.user_keywords[chat_id]:
+            # Check if the keyword appears in a complex pattern
+            if '+' in pattern and keyword_to_delete in pattern:
+                matching_patterns.append(pattern)
+            elif pattern.startswith('"') and pattern.endswith('"'):
+                # Check if it matches a quoted phrase
+                phrase = pattern[1:-1].strip()
+                if phrase == keyword_to_delete.strip('"'):
+                    matching_patterns.append(pattern)
+        
+        if matching_patterns:
+            # Remove all matching patterns
+            for pattern in matching_patterns:
+                self.user_keywords[chat_id].remove(pattern)
+            
+            self.save_user_data()
+            
+            if len(matching_patterns) == 1:
+                await update.message.reply_text(f"✅ Removed pattern: {matching_patterns[0]}")
+            else:
+                patterns_str = ', '.join(matching_patterns)
+                await update.message.reply_text(f"✅ Removed {len(matching_patterns)} patterns: {patterns_str}")
         else:
-            await update.message.reply_text(f"Keyword '{keyword}' not found in your list!")
+            # Show current keywords to help user
+            current = ', '.join(self.user_keywords[chat_id])
+            await update.message.reply_text(
+                f"❌ Keyword '{keyword_to_delete}' not found!\n\n"
+                f"Your current keywords: {current}\n\n"
+                f"💡 Use the exact pattern to delete, e.g.:\n"
+                f"/delete_keyword_from_list python+\"project manager\""
+            )
     
     async def delete_ignore_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /delete_ignore_keyword command"""
