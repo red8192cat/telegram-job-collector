@@ -193,9 +193,10 @@ class JobCollectorBot:
             "📊 Other Commands:\n"
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
-            "💡 Keyword Tips:\n"
+            "💡 Keyword Types:\n"
             "• Single words: python, javascript, remote\n"
             "• AND logic: python+junior+remote (all 3 must be present)\n"
+            "• Exact phrases: \"project manager\" (exact order)\n"
             "• Ignore keywords help filter out unwanted messages\n\n"
             "🎯 The bot forwards ALL messages that match your keywords!"
         )
@@ -207,7 +208,7 @@ class JobCollectorBot:
         await query.answer()
         
         if query.data == "menu_keywords":
-            msg = "🎯 To set keywords, use:\n/keywords python, javascript+remote, react\n\nTips:\n• Single: python\n• AND logic: python+junior+remote"
+            msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", javascript+remote\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\""
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_ignore":
@@ -441,12 +442,19 @@ class JobCollectorBot:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
     
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
-        """Check if message matches user's keywords with AND logic support"""
+        """Check if message matches user's keywords with AND logic and exact phrase support"""
         text_lower = message_text.lower()
         
         for keyword_pattern in user_keywords:
+            # Check if this is an exact phrase (wrapped in quotes)
+            if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
+                # Extract the phrase without quotes
+                exact_phrase = keyword_pattern[1:-1].strip()
+                if exact_phrase in text_lower:
+                    return True
+            
             # Check if this is an AND pattern (contains +)
-            if '+' in keyword_pattern:
+            elif '+' in keyword_pattern:
                 # Split by + and check that ALL words are present
                 required_words = [word.strip() for word in keyword_pattern.split('+') if word.strip()]
                 if all(word in text_lower for word in required_words):
