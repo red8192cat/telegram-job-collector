@@ -126,7 +126,7 @@ class JobCollectorBot:
         
         try:
             await self.app.bot.set_my_commands(commands)
-            logger.info("Bot menu commands set successfully (without purge_list)")
+            logger.info("Bot menu commands set successfully")
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
     
@@ -587,51 +587,92 @@ class JobCollectorBot:
             # No wildcard, simple substring match
             return pattern in text
         
+        # Convert text to lowercase for matching
+        text_lower = text.lower()
+        pattern_lower = pattern.lower()
+        
         # Handle patterns with wildcards
-        if pattern.endswith('*'):
-            # Single wildcard at the end
-            prefix = pattern[:-1]
+        if pattern_lower.endswith('*') and ' ' not in pattern_lower:
+            # Single wildcard at the end (e.g., "develop*")
+            prefix = pattern_lower[:-1]
             if not prefix:  # Just "*" is not valid
                 return False
             
             # Split text into words and check if any word starts with the prefix
-            words = re.findall(r'\b\w+', text)
+            words = re.findall(r'\b\w+', text_lower)
             return any(word.startswith(prefix) for word in words)
         
-        elif ' ' in pattern and '*' in pattern:
+        elif ' ' in pattern_lower and '*' in pattern_lower:
             # Multiple words with wildcards (e.g., "support* engineer*")
-            pattern_words = pattern.split()
-            text_words = re.findall(r'\b\w+', text.lower())
+            pattern_words = pattern_lower.split()
+            text_words = re.findall(r'\b\w+', text_lower)
+            
+            # Debug logging
+            logger.debug(f"Wildcard matching: pattern_words={pattern_words}, text_words={text_words}")
             
             # Try to find the pattern sequence in text
             for i in range(len(text_words) - len(pattern_words) + 1):
                 match_found = True
+                logger.debug(f"Trying position {i}")
+                
                 for j, pattern_word in enumerate(pattern_words):
+                    if i + j >= len(text_words):  # Safety check
+                        match_found = False
+                        break
+                        
                     text_word = text_words[i + j]
+                    logger.debug(f"  Comparing '{pattern_word}' with '{text_word}'")
                     
                     if pattern_word.endswith('*'):
                         # Wildcard match
                         prefix = pattern_word[:-1]
                         if prefix and not text_word.startswith(prefix):
+                            logger.debug(f"    No match: '{text_word}' doesn't start with '{prefix}'")
                             match_found = False
                             break
+                        elif not prefix:  # Just "*" is not valid
+                            match_found = False
+                            break
+                        else:
+                            logger.debug(f"    Match: '{text_word}' starts with '{prefix}'")
                     else:
                         # Exact word match
                         if pattern_word != text_word:
+                            logger.debug(f"    No match: '{pattern_word}' != '{text_word}'")
                             match_found = False
                             break
+                        else:
+                            logger.debug(f"    Match: '{pattern_word}' == '{text_word}'")
                 
                 if match_found:
+                    logger.debug(f"Overall match found at position {i}")
                     return True
             
+            logger.debug("No match found in wildcard pattern")
             return False
         
         else:
-            # Wildcard in middle of single word or other cases
-            if '*' in pattern:
-                # For now, treat as literal (could be enhanced later)
-                return pattern.replace('*', '') in text
-            return pattern in text
+            # Single wildcard in middle of word or other edge cases
+            if '*' in pattern_lower:
+                # Handle wildcards in middle (basic implementation)
+                # Split by * and check if all parts exist in order
+                parts = pattern_lower.split('*')
+                if len(parts) == 2:
+                    # Single * in middle like "sup*port"
+                    before, after = parts
+                    if before and after:
+                        # Find words that start with 'before' and end with 'after'
+                        words = re.findall(r'\b\w+', text_lower)
+                        return any(word.startswith(before) and word.endswith(after) for word in words)
+                    elif before and not after:
+                        # Same as endswith('*') case
+                        words = re.findall(r'\b\w+', text_lower)
+                        return any(word.startswith(before) for word in words)
+                
+                # Fallback: treat as literal (remove * and do substring match)
+                return pattern_lower.replace('*', '') in text_lower
+            
+            return pattern_lower in text_lower
     
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
         """Check if message matches user's keywords with AND logic, exact phrase support, and wildcards"""
@@ -886,3 +927,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+                
