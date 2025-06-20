@@ -20,7 +20,7 @@ A smart Telegram bot that automatically forwards job postings from monitored cha
 
 2. **Deploy with Docker**
    ```bash
-   git clone https://github.com/yourusername/telegram-job-collector.git
+   git clone https://github.com/red8192cat/telegram-job-collector.git
    cd telegram-job-collector
    cp .env.example .env
    cp config.json.example config.json
