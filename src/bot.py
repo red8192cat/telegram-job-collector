@@ -102,8 +102,33 @@ class JobCollectorBot:
         asyncio.create_task(reload_task())
         logger.info("Config reload task started")
         
-        # Clear any old bot menu commands
-        await self.clear_bot_menu()
+        # Clear any old bot menu commands and set up new ones
+        await self.setup_bot_menu()
+    
+    async def setup_bot_menu(self):
+        """Set up the bot menu commands (without purge_list)"""
+        from telegram import BotCommand
+        
+        commands = [
+            BotCommand("start", "🚀 Start the bot and see welcome message"),
+            BotCommand("menu", "📋 Show interactive menu"),
+            BotCommand("keywords", "🎯 Set your search keywords"),
+            BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
+            BotCommand("my_keywords", "📝 Show your current keywords"),
+            BotCommand("my_ignore", "📋 Show your ignore keywords"),
+            BotCommand("add_keyword_to_list", "➕ Add a keyword"),
+            BotCommand("add_ignore_keyword", "➕ Add ignore keyword"),
+            BotCommand("delete_keyword_from_list", "➖ Remove a keyword"),
+            BotCommand("delete_ignore_keyword", "➖ Remove ignore keyword"),
+            BotCommand("purge_ignore", "🗑️ Clear all ignore keywords"),
+            BotCommand("help", "❓ Show help and examples")
+        ]
+        
+        try:
+            await self.app.bot.set_my_commands(commands)
+            logger.info("Bot menu commands set successfully (without purge_list)")
+        except Exception as e:
+            logger.warning(f"Could not set bot menu commands: {e}")
     
     async def clear_bot_menu(self):
         """Clear the bot menu commands"""
