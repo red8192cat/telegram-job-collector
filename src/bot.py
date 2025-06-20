@@ -139,7 +139,6 @@ class JobCollectorBot:
         self.app.add_handler(CommandHandler("delete_keyword_from_list", self.delete_keyword_command))
         self.app.add_handler(CommandHandler("add_ignore_keyword", self.add_ignore_keyword_command))
         self.app.add_handler(CommandHandler("delete_ignore_keyword", self.delete_ignore_keyword_command))
-        self.app.add_handler(CommandHandler("purge_list", self.purge_keywords_command))
         self.app.add_handler(CommandHandler("purge_ignore", self.purge_ignore_keywords_command))
         self.app.add_handler(CommandHandler("my_keywords", self.show_keywords_command))
         self.app.add_handler(CommandHandler("my_ignore", self.show_ignore_keywords_command))
@@ -194,17 +193,16 @@ class JobCollectorBot:
         help_msg = (
             "📋 Available Commands:\n\n"
             "🎯 Keywords Management:\n"
-            "/keywords <word1, word2, ...> - Set your keywords\n"
+            "/keywords <word1, word2, ...> - Set your keywords (overwrites)\n"
             "/add_keyword_to_list <keyword> - Add a keyword\n"
             "/delete_keyword_from_list <keyword> - Remove a keyword\n"
-            "/my_keywords - Show your current keywords\n"
-            "/purge_list - Clear all keywords\n\n"
+            "/my_keywords - Show your current keywords\n\n"
             "🚫 Ignore Keywords:\n"
-            "/ignore_keywords <word1, word2, ...> - Set ignore keywords\n"
+            "/ignore_keywords <word1, word2, ...> - Set ignore keywords (overwrites)\n"
             "/add_ignore_keyword <keyword> - Add ignore keyword\n"
             "/delete_ignore_keyword <keyword> - Remove ignore keyword\n"
             "/my_ignore - Show ignore keywords\n"
-            "/purge_ignore - Clear ignore list\n\n"
+            "/purge_ignore - Clear all ignore keywords\n\n"
             "📊 Other Commands:\n"
             "/menu - Show interactive menu\n"
             "/help - Show this help message\n\n"
@@ -269,22 +267,22 @@ class JobCollectorBot:
                 help_msg = (
                     "📋 Available Commands:\n\n"
                     "🎯 Keywords Management:\n"
-                    "/keywords <word1, word2, ...> - Set your keywords\n"
+                    "/keywords <word1, word2, ...> - Set your keywords (overwrites)\n"
                     "/add_keyword_to_list <keyword> - Add a keyword\n"
                     "/delete_keyword_from_list <keyword> - Remove a keyword\n"
-                    "/my_keywords - Show your current keywords\n"
-                    "/purge_list - Clear all keywords\n\n"
+                    "/my_keywords - Show your current keywords\n\n"
                     "🚫 Ignore Keywords:\n"
-                    "/ignore_keywords <word1, word2, ...> - Set ignore keywords\n"
+                    "/ignore_keywords <word1, word2, ...> - Set ignore keywords (overwrites)\n"
                     "/add_ignore_keyword <keyword> - Add ignore keyword\n"
                     "/delete_ignore_keyword <keyword> - Remove ignore keyword\n"
                     "/my_ignore - Show ignore keywords\n"
-                    "/purge_ignore - Clear ignore list\n\n"
+                    "/purge_ignore - Clear all ignore keywords\n\n"
                     "💡 Keyword Types:\n"
                     "• Single: python, javascript, remote\n"
                     "• AND: python+junior+remote (all 3 must be present)\n"
                     "• Exact: \"project manager\" (exact order)\n"
-                    "• Mixed: python+\"project manager\"+remote"
+                    "• Wildcard: manag* (matches manager, managing, management)\n"
+                    "• Mixed: python+\"project manag*\"+remote"
                 )
                 await query.edit_message_text(help_msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
                 logger.info("Sent help content")
@@ -325,11 +323,12 @@ class JobCollectorBot:
         if not context.args:
             await update.message.reply_text(
                 "Please provide keywords:\n"
-                "/keywords python, \"project manager\", remote\n"
+                "/keywords python, \"project manag*\", remote\n"
                 "/keywords python+\"data scientist\", react+senior\n\n"
                 "• Use + for AND logic (all parts must be present)\n"
                 "• Use \"quotes\" for exact phrases in order\n"
-                "• Mix them: python+\"machine learning\"+remote"
+                "• Use * for wildcards at word endings\n"
+                "• Mix them: python+\"machine learn*\"+remote"
             )
             return
         
@@ -499,20 +498,6 @@ class JobCollectorBot:
         else:
             await update.message.reply_text(f"Ignore keyword '{keyword}' not found in your list!")
     
-    async def purge_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /purge_list command"""
-        if not self.is_private_chat(update):
-            return
-        
-        chat_id = update.effective_chat.id
-        
-        if chat_id in self.user_keywords:
-            del self.user_keywords[chat_id]
-            self.save_user_data()
-            await update.message.reply_text("✅ All keywords cleared!")
-        else:
-            await update.message.reply_text("You don't have any keywords set!")
-    
     async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /purge_ignore command"""
         if not self.is_private_chat(update):
@@ -554,7 +539,7 @@ class JobCollectorBot:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
     
     def matches_user_keywords(self, message_text: str, user_keywords: List[str]) -> bool:
-        """Check if message matches user's keywords with AND logic and exact phrase support"""
+        """Check if message matches user's keywords with AND logic, exact phrase support, and wildcards"""
         text_lower = message_text.lower()
         
         for keyword_pattern in user_keywords:
@@ -562,7 +547,7 @@ class JobCollectorBot:
             if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
                 # Extract the phrase without quotes
                 exact_phrase = keyword_pattern[1:-1].strip()
-                if exact_phrase in text_lower:
+                if self.matches_with_wildcard(text_lower, exact_phrase):
                     return True
             
             # Check if this is an AND pattern (contains +)
@@ -575,30 +560,87 @@ class JobCollectorBot:
                     # Check if this part is an exact phrase
                     if part.startswith('"') and part.endswith('"'):
                         exact_phrase = part[1:-1].strip()
-                        if exact_phrase not in text_lower:
+                        if not self.matches_with_wildcard(text_lower, exact_phrase):
                             all_parts_match = False
                             break
                     else:
-                        # Regular word match
-                        if part not in text_lower:
+                        # Regular word match with wildcard support
+                        if not self.matches_with_wildcard(text_lower, part):
                             all_parts_match = False
                             break
                 
                 if all_parts_match:
                     return True
             else:
-                # Simple single keyword match
-                if keyword_pattern in text_lower:
+                # Simple single keyword match with wildcard support
+                if self.matches_with_wildcard(text_lower, keyword_pattern):
                     return True
         
         return False
     
+    def matches_with_wildcard(self, text: str, pattern: str) -> bool:
+        """Check if text matches pattern with wildcard support (* at word endings only)"""
+        if '*' not in pattern:
+            # No wildcard, simple substring match
+            return pattern in text
+        
+        # Handle wildcard patterns
+        if pattern.endswith('*'):
+            # Remove the * and check if any word in text starts with the pattern
+            prefix = pattern[:-1]
+            if not prefix:  # Just "*" is not valid
+                return False
+            
+            # Split text into words and check if any word starts with the prefix
+            import re
+            words = re.findall(r'\b\w+', text)
+            return any(word.startswith(prefix) for word in words)
+        else:
+            # Wildcard not at the end, treat as literal (shouldn't happen with our rules)
+            return pattern.replace('*', '') in text
+    
     def matches_ignore_keywords(self, message_text: str, ignore_keywords: List[str]) -> bool:
-        """Check if message matches ignore keywords"""
+        """Check if message matches ignore keywords with AND logic, exact phrase support, and wildcards"""
         if not ignore_keywords:
             return False
+        
         text_lower = message_text.lower()
-        return any(keyword in text_lower for keyword in ignore_keywords)
+        
+        for keyword_pattern in ignore_keywords:
+            # Check if this is an exact phrase (wrapped in quotes)
+            if keyword_pattern.startswith('"') and keyword_pattern.endswith('"'):
+                # Extract the phrase without quotes
+                exact_phrase = keyword_pattern[1:-1].strip()
+                if self.matches_with_wildcard(text_lower, exact_phrase):
+                    return True
+            
+            # Check if this is an AND pattern (contains +)
+            elif '+' in keyword_pattern:
+                # Split by + and process each part
+                required_parts = [part.strip() for part in keyword_pattern.split('+') if part.strip()]
+                all_parts_match = True
+                
+                for part in required_parts:
+                    # Check if this part is an exact phrase
+                    if part.startswith('"') and part.endswith('"'):
+                        exact_phrase = part[1:-1].strip()
+                        if not self.matches_with_wildcard(text_lower, exact_phrase):
+                            all_parts_match = False
+                            break
+                    else:
+                        # Regular word match with wildcard support
+                        if not self.matches_with_wildcard(text_lower, part):
+                            all_parts_match = False
+                            break
+                
+                if all_parts_match:
+                    return True
+            else:
+                # Simple single keyword match with wildcard support
+                if self.matches_with_wildcard(text_lower, keyword_pattern):
+                    return True
+        
+        return False
     
     async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming messages from monitored channels"""
