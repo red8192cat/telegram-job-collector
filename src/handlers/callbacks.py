@@ -6,13 +6,13 @@ import logging
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
-from storage.data_manager import DataManager
+from storage.sqlite_manager import SQLiteManager
 from utils.helpers import create_main_menu, create_back_menu, get_help_text, get_keywords_help, get_ignore_help, get_contact_info
 
 logger = logging.getLogger(__name__)
 
 class CallbackHandlers:
-    def __init__(self, data_manager: DataManager):
+    def __init__(self, data_manager: SQLiteManager):
         self.data_manager = data_manager
     
     def register(self, app):

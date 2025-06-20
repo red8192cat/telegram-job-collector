@@ -6,13 +6,13 @@ import logging
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from storage.data_manager import DataManager
+from storage.sqlite_manager import SQLiteManager
 from utils.helpers import is_private_chat, create_main_menu, get_help_text, get_set_keywords_help, get_add_keyword_help
 
 logger = logging.getLogger(__name__)
 
 class CommandHandlers:
-    def __init__(self, data_manager: DataManager):
+    def __init__(self, data_manager: SQLiteManager):
         self.data_manager = data_manager
     
     def register(self, app):

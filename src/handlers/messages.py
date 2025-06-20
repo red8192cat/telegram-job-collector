@@ -9,14 +9,14 @@ from telegram import Update
 from telegram.ext import MessageHandler, filters, ContextTypes
 from telegram.error import TelegramError
 
-from storage.data_manager import DataManager
+from storage.sqlite_manager import SQLiteManager
 from utils.config import ConfigManager
 from matching.keywords import KeywordMatcher
 
 logger = logging.getLogger(__name__)
 
 class MessageHandlers:
-    def __init__(self, data_manager: DataManager, config_manager: ConfigManager):
+    def __init__(self, data_manager: SQLiteManager, config_manager: ConfigManager):
         self.data_manager = data_manager
         self.config_manager = config_manager
         self.keyword_matcher = KeywordMatcher()
