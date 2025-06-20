@@ -104,7 +104,7 @@ class JobCollectorBot:
         logger.info("Config reload task started")
         
         # Set up bot menu commands (only if not set recently)
-        await self.setup_bot_menu_safe()
+        await self.setup_bot_menu_with_rate_limit()
     
     async def setup_bot_menu(self):
         """Set up the bot menu commands that appear in Telegram"""
