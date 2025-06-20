@@ -37,7 +37,7 @@ cd telegram-job-collector
 cp .env.example .env
 cp config.json.example config.json
 # Edit .env and config.json with your settings
-docker compose up -d
+docker-compose up -d
 ```
 
 ### **3. Add Bot to Channels**
@@ -175,7 +175,7 @@ cp data/bot.db backup.db
 git pull                          # Get latest code
 echo "TELEGRAM_BOT_TOKEN=token" > .env  # Set bot token
 cp backup.db data/bot.db          # Copy single database file
-docker compose up -d              # Start bot
+docker-compose up -d              # Start bot
 
 # ✅ All users and settings preserved!
 ```
@@ -183,7 +183,7 @@ docker compose up -d              # Start bot
 ### **Database Statistics**
 ```bash
 # Check database size and performance
-docker compose exec telegram-bot python health_check.py
+docker-compose exec telegram-bot python health_check.py
 
 # Database info
 ls -la data/
@@ -265,16 +265,16 @@ LOG_LEVEL=INFO                    # Logging level
 ### Docker (Recommended)
 ```bash
 # Start in background
-docker compose up -d          
+docker-compose up -d          
 
 # View logs
-docker compose logs -f        
+docker-compose logs -f        
 
 # Restart bot
-docker compose restart        
+docker-compose restart        
 
 # Health check
-docker compose exec telegram-bot python health_check.py
+docker-compose exec telegram-bot python health_check.py
 ```
 
 ### Manual Updates
@@ -285,7 +285,7 @@ nano config.json             # Edit channels
 
 # Update bot code
 git pull
-docker compose up -d --build  # Rebuild and restart
+docker-compose up -d --build  # Rebuild and restart
 ```
 
 ### Production Deployment
@@ -296,13 +296,13 @@ cd telegram-job-collector
 echo "TELEGRAM_BOT_TOKEN=your_production_token" > .env
 cp config.json.example config.json
 # Edit config.json with your channels
-docker compose build
-docker compose up -d
+docker-compose build
+docker-compose up -d
 
 # Future updates
 git pull
-docker compose build --no-cache
-docker compose up -d
+docker-compose build --no-cache
+docker-compose up -d
 ```
 
 ## 📊 Monitoring & Performance
@@ -310,7 +310,7 @@ docker compose up -d
 ### Health Checks
 ```bash
 # Check database connectivity
-docker compose exec telegram-bot python health_check.py
+docker-compose exec telegram-bot python health_check.py
 
 # View performance stats
 docker logs job-collector-bot | grep "SQLite initialized"
@@ -322,13 +322,29 @@ docker logs job-collector-bot | grep "Forwarded job"
 ### Database Maintenance
 ```bash
 # Database size and stats
-docker compose exec telegram-bot ls -la /app/data/
+docker-compose exec telegram-bot ls -la /app/data/
 
 # Connection pool status (in logs)
 docker logs job-collector-bot | grep "connection"
 
 # Performance metrics
 docker stats job-collector-bot
+```
+
+### Database Queries & Administration
+```bash
+# View all users and their keywords/ignore words in a table
+docker exec job-collector-bot sqlite3 -header -column /app/data/bot.db "
+SELECT 
+    u.id as 'User_ID',
+    COALESCE(GROUP_CONCAT(DISTINCT uk.keyword, ', '), 'None') as 'Keywords',
+    COALESCE(GROUP_CONCAT(DISTINCT uik.keyword, ', '), 'None') as 'Ignore_Words'
+FROM users u 
+LEFT JOIN user_keywords uk ON u.id = uk.user_id 
+LEFT JOIN user_ignore_keywords uik ON u.id = uik.user_id 
+GROUP BY u.id 
+ORDER BY u.id;
+"
 ```
 
 ### Scaling Indicators
@@ -352,17 +368,17 @@ echo "TELEGRAM_BOT_TOKEN=your_test_token" > .env
 cp config.json.example config.json
 
 # Run locally
-docker compose build
-docker compose up -d
+docker-compose build
+docker-compose up -d
 
 # View logs
-docker compose logs -f telegram-bot
+docker-compose logs -f telegram-bot
 ```
 
 ### Testing
 ```bash
 # Test database connectivity
-docker compose exec telegram-bot python health_check.py
+docker-compose exec telegram-bot python health_check.py
 
 # Test keyword matching
 # Send /keywords [remote], python to your bot
@@ -385,7 +401,7 @@ docker compose exec telegram-bot python health_check.py
 
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Test with SQLite database (`docker compose up -d`)
+3. Test with SQLite database (`docker-compose up -d`)
 4. Commit changes (`git commit -m 'Add amazing feature'`)
 5. Push to branch (`git push origin feature/amazing-feature`)
 6. Open Pull Request
