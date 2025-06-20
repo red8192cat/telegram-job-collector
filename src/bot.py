@@ -101,6 +101,36 @@ class JobCollectorBot:
         # Start the task
         asyncio.create_task(reload_task())
         logger.info("Config reload task started")
+        
+        # Set up bot menu commands
+        await self.setup_bot_menu()
+    
+    async def setup_bot_menu(self):
+        """Set up the bot menu commands that appear in Telegram"""
+        from telegram import BotCommand
+        
+        commands = [
+            BotCommand("start", "🚀 Start the bot and see welcome message"),
+            BotCommand("menu", "📋 Show interactive menu"),
+            BotCommand("keywords", "🎯 Set your search keywords"),
+            BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
+            BotCommand("my_keywords", "📝 Show your current keywords"),
+            BotCommand("my_ignore", "📋 Show your ignore keywords"),
+            BotCommand("add_keyword_to_list", "➕ Add a keyword"),
+            BotCommand("add_ignore_keyword", "➕ Add ignore keyword"),
+            BotCommand("purge_list", "🗑️ Clear all keywords"),
+            BotCommand("purge_ignore", "🗑️ Clear ignore keywords"),
+            BotCommand("help", "❓ Show help and examples")
+        ]
+        
+        try:
+            await self.app.bot.set_my_commands(commands)
+            logger.info("Bot menu commands set successfully")
+        except Exception as e:
+            logger.error(f"Failed to set bot menu commands: {e}")
+        
+        # Set up bot menu commands
+        await self.setup_bot_menu()
     
     def is_private_chat(self, update: Update) -> bool:
         """Check if message is from private chat"""
