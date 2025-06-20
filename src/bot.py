@@ -377,11 +377,12 @@ class JobCollectorBot:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text(
+                            await update.message.reply_text(
                 "Please provide a keyword:\n"
                 "/add_keyword_to_list python\n"
                 "/add_keyword_to_list python+junior+remote\n"
-                "/add_keyword_to_list \"project manager\""
+                "/add_keyword_to_list \"project manag*\"\n"
+                "/add_keyword_to_list develop*"
             )
             return
         
