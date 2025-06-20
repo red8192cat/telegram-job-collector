@@ -38,6 +38,9 @@ class SQLiteManager:
         # Set initialized flag BEFORE using any connections
         self._initialized = True
     
+        # Set initialized flag BEFORE using any connections
+        self._initialized = True
+    
         # Initialize schema
         async with self._get_connection() as conn:
             await self._create_schema(conn)
