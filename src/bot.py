@@ -197,6 +197,7 @@ class JobCollectorBot:
             "• Single words: python, javascript, remote\n"
             "• AND logic: python+junior+remote (all 3 must be present)\n"
             "• Exact phrases: \"project manager\" (exact order)\n"
+            "• Mixed: python+\"project manager\"+remote\n"
             "• Ignore keywords help filter out unwanted messages\n\n"
             "🎯 The bot forwards ALL messages that match your keywords!"
         )
@@ -208,7 +209,7 @@ class JobCollectorBot:
         await query.answer()
         
         if query.data == "menu_keywords":
-            msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", javascript+remote\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\""
+            msg = "🎯 To set keywords, use:\n/keywords python, \"project manager\", python+\"data scientist\"\n\nTypes:\n• Single: python\n• AND: python+junior\n• Exact: \"project manager\"\n• Mixed: python+\"data scientist\""
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]]))
         
         elif query.data == "menu_ignore":
@@ -455,9 +456,24 @@ class JobCollectorBot:
             
             # Check if this is an AND pattern (contains +)
             elif '+' in keyword_pattern:
-                # Split by + and check that ALL words are present
-                required_words = [word.strip() for word in keyword_pattern.split('+') if word.strip()]
-                if all(word in text_lower for word in required_words):
+                # Split by + and process each part
+                required_parts = [part.strip() for part in keyword_pattern.split('+') if part.strip()]
+                all_parts_match = True
+                
+                for part in required_parts:
+                    # Check if this part is an exact phrase
+                    if part.startswith('"') and part.endswith('"'):
+                        exact_phrase = part[1:-1].strip()
+                        if exact_phrase not in text_lower:
+                            all_parts_match = False
+                            break
+                    else:
+                        # Regular word match
+                        if part not in text_lower:
+                            all_parts_match = False
+                            break
+                
+                if all_parts_match:
                     return True
             else:
                 # Simple single keyword match
