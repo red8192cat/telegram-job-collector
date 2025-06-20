@@ -23,23 +23,22 @@ class SQLiteManager:
         """Initialize database with optimizations for high performance"""
         if self._initialized:
             return
-            
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         
+        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+    
         # Create connection pool
         for _ in range(self._pool_size):
             conn = await aiosqlite.connect(self.db_path)
             await self._configure_connection(conn)
             await self._available_connections.put(conn)
-        
+    
+        # Mark as initialized BEFORE using _get_connection()
+        self._initialized = True
+    
         # Initialize schema
-        # Mark as initialized BEFORE creating schema
-
-        # Mark as initialized BEFORE creating schema
-
         async with self._get_connection() as conn:
             await self._create_schema(conn)
-            
+        
         logger.info(f"SQLite initialized: {self.db_path}")
     
     async def _configure_connection(self, conn):
