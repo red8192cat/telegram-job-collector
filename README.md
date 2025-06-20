@@ -1,15 +1,16 @@
 # 🤖 Telegram Job Collector Bot
 
-A smart Telegram bot that automatically forwards job postings from monitored channels to users based on their custom keywords with advanced filtering capabilities.
+A smart Telegram bot that automatically forwards job postings from monitored channels to users based on their custom keywords with advanced filtering capabilities and modular architecture.
 
 ## ✨ Features
 
-- 🎯 **Advanced Keyword Matching** - Single words, AND logic, exact phrases, and wildcards
+- 🎯 **Advanced Keyword Matching** - Required keywords, OR logic, AND logic, exact phrases, and wildcards
 - 🚫 **Smart Ignore Filters** - Block unwanted job postings with ignore keywords
 - 🔄 **Auto Channel Monitoring** - Real-time job forwarding from configured channels
 - 🔒 **Private Only** - Bot only responds in private chats, never in groups
 - ⚙️ **Auto Configuration Reload** - Updates channel list every hour without restart
 - 💬 **Interactive Interface** - User-friendly buttons and comprehensive help
+- 🏗️ **Modular Architecture** - Clean, maintainable codebase for easy development
 
 ## 🚀 Quick Start
 
@@ -47,46 +48,47 @@ A smart Telegram bot that automatically forwards job postings from monitored cha
    }
    ```
 
-## 🎯 Keyword System
+## 🎯 Advanced Keyword System
 
 ### Keyword Types
 
 | Type | Syntax | Example | Matches |
 |------|--------|---------|---------|
+| **Required** | `[word]` | `[remote]` | Must contain "remote" |
+| **Required OR** | `[word1\|word2]` | `[remote\|online]` | Must contain "remote" OR "online" |
 | **Single** | `word` | `python` | "Python developer needed" |
 | **AND Logic** | `word1+word2` | `python+remote` | "Remote Python developer" |
 | **Exact Phrase** | `"phrase"` | `"project manager"` | "Project manager role" (exact order) |
 | **Wildcard** | `word*` | `develop*` | developer, development, developing |
 | **Multi-Wildcard** | `"word1* word2*"` | `"support* engineer*"` | "Support Engineer", "Supporting Engineering" |
 
-### Setting Keywords
+### Advanced Examples
 
 ```bash
-# Set keywords (overwrites existing)
-/keywords python, remote, "data scientist"
+# Must be remote AND match tech skills
+/keywords [remote], linux, python, "data scientist"
 
-# Complex patterns
-/keywords python+remote, "project manag*", develop*+senior
+# Must be remote OR online AND senior OR lead
+/keywords [remote|online], [senior|lead], python, devops
 
-# Add individual keywords
-/add_keyword_to_list react+typescript
+# Complex patterns with wildcards
+/keywords [remote|online], "support* engineer*", python+django, develop*
 
-# Remove keywords
-/delete_keyword_from_list python
+# Filter out unwanted technologies
+/ignore_keywords java, php, "team lead"
 ```
 
-### Ignore Keywords
+### Logic Rules
 
-```bash
-# Block unwanted jobs
-/ignore_keywords java, senior, "team lead"
+- **Required keywords** (in brackets): ALL must be present
+- **Optional keywords**: At least ONE must match
+- **Final rule**: `(ALL required) AND (at least one optional)`
 
-# Complex ignore patterns
-/ignore_keywords java+senior, "project manag*"
-
-# Clear all ignore keywords
-/purge_ignore
-```
+**Example**: `/keywords [remote|online], linux, python`
+- ✅ "Remote Linux administrator" → has required + optional
+- ✅ "Online Python developer" → has required + optional  
+- ❌ "Linux administrator in NYC" → missing required
+- ❌ "Remote project manager" → missing optional
 
 ## 📋 User Commands
 
@@ -108,22 +110,37 @@ A smart Telegram bot that automatically forwards job postings from monitored cha
 - `/menu` - Show interactive button menu
 - `/help` - Complete help with examples
 
-## 📁 Project Structure
+## 🏗️ Project Structure
 
 ```
 telegram-job-collector/
-├── README.md                 # This file
-├── docker-compose.yml        # Docker deployment config
-├── Dockerfile               # Container definition
-├── requirements.txt         # Python dependencies
-├── .env.example            # Environment variables template
-├── config.json.example     # Channel configuration template
-├── src/
-│   └── bot.py              # Main bot application
-└── data/                   # Persistent data storage
-    ├── user_keywords.json         # User search keywords
-    ├── user_ignore_keywords.json  # User ignore patterns
-    └── last_menu_set.txt          # Bot menu rate limit tracking
+├── README.md                    # This file
+├── docker-compose.yml           # Docker deployment config
+├── Dockerfile                   # Container definition
+├── requirements.txt             # Python dependencies
+├── .env.example                # Environment variables template
+├── config.json.example         # Channel configuration template
+├── src/                        # Source code
+│   ├── bot.py                  # Main application entry point
+│   ├── handlers/               # Request handlers
+│   │   ├── __init__.py
+│   │   ├── commands.py         # All bot commands (/start, /keywords, etc.)
+│   │   ├── callbacks.py        # Menu button interactions
+│   │   └── messages.py         # Channel message processing & forwarding
+│   ├── matching/               # Keyword matching engine
+│   │   ├── __init__.py
+│   │   └── keywords.py         # Advanced pattern matching logic
+│   ├── storage/                # Data persistence
+│   │   ├── __init__.py
+│   │   └── data_manager.py     # File I/O and user data management
+│   └── utils/                  # Utilities and configuration
+│       ├── __init__.py
+│       ├── config.py           # Configuration file management
+│       └── helpers.py          # Menu creation and helper functions
+└── data/                       # Persistent data storage (Docker volume)
+    ├── user_keywords.json      # User search keywords
+    ├── user_ignore_keywords.json # User ignore patterns
+    └── last_menu_set.txt       # Bot menu rate limit tracking
 ```
 
 ## 💾 Data Storage
@@ -133,8 +150,8 @@ All user data is stored in `/data` directory:
 ### `user_keywords.json`
 ```json
 {
-  "123456789": ["python+remote", "\"data scientist\"", "develop*"],
-  "987654321": ["react", "javascript+senior"]
+  "123456789": ["[remote|online]", "python+django", "\"data scientist\""],
+  "987654321": ["[remote]", "react", "javascript+senior"]
 }
 ```
 
@@ -142,7 +159,7 @@ All user data is stored in `/data` directory:
 ```json
 {
   "123456789": ["java", "php+senior", "\"team lead*\""],
-  "987654321": ["management"]
+  "987654321": ["management", "onsite"]
 }
 ```
 
@@ -208,25 +225,6 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 - **Persistent storage** - All user preferences saved across restarts
 - **Error recovery** - Gracefully handles API limits and network issues
 
-## 🔧 Setup Requirements
-
-### Bot Permissions
-The bot **must be added as an admin** to each channel/group you want to monitor:
-
-| Channel Type | Setup Steps | Required Permission |
-|--------------|-------------|-------------------|
-| **Public Channel** | Add `@Find_Me_A_Perfect_Job_bot` as admin | Read Messages |
-| **Private Group** | Add bot → Promote to admin | Read Messages |
-| **Supergroup** | Add bot → Admin → Read Messages | Read Messages |
-
-### Getting Channel IDs
-```bash
-# For private groups, get the ID using:
-# 1. Add @userinfobot to the group
-# 2. Send any message - bot will show group ID
-# 3. Use the ID (including minus sign) in config.json
-```
-
 ## 🚀 Deployment
 
 ### Docker (Recommended)
@@ -259,6 +257,43 @@ docker logs job-collector-bot | grep "Forwarded job"
 docker logs job-collector-bot | grep "Processing message"
 ```
 
+## 🔧 Development
+
+### Modular Architecture Benefits
+
+1. **Easy Maintenance** - Each component has a single responsibility
+2. **Simple Debugging** - Find issues quickly in the right module
+3. **Clean Testing** - Test keyword matching independently of commands
+4. **Fast Development** - Add features without touching core logic
+5. **Team Collaboration** - Multiple developers can work on different modules
+
+### Adding New Features
+
+```bash
+# Add new commands
+edit src/handlers/commands.py
+
+# Modify keyword logic
+edit src/matching/keywords.py
+
+# Update data storage
+edit src/storage/data_manager.py
+
+# Add configuration options
+edit src/utils/config.py
+```
+
+### Running Tests
+
+```bash
+# Test keyword matching
+python -m pytest tests/test_keywords.py
+
+# Test full bot functionality
+docker-compose up -d --build
+./test_bot.sh
+```
+
 ## 🤝 Contributing
 
 1. Fork the repository
@@ -266,6 +301,14 @@ docker logs job-collector-bot | grep "Processing message"
 3. Commit changes (`git commit -m 'Add amazing feature'`)
 4. Push to branch (`git push origin feature/amazing-feature`)
 5. Open Pull Request
+
+### Code Style
+
+- Follow PEP 8 for Python code
+- Use type hints where appropriate
+- Add docstrings to all public methods
+- Keep modules focused and cohesive
+- Write tests for new functionality
 
 ## 📜 License
 
