@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Set
 
@@ -102,8 +103,8 @@ class JobCollectorBot:
         asyncio.create_task(reload_task())
         logger.info("Config reload task started")
         
-        # Set up bot menu commands
-        await self.setup_bot_menu()
+        # Set up bot menu commands (only if not set recently)
+        await self.setup_bot_menu_safe()
     
     async def setup_bot_menu(self):
         """Set up the bot menu commands that appear in Telegram"""
