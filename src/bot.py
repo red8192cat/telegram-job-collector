@@ -56,6 +56,10 @@ class JobCollectorBot:
     
     async def start_background_tasks(self):
         """Start background tasks like config reloading"""
+        # Initialize database first
+        await self.db_manager.initialize()
+        logger.info("Database initialized successfully")
+    
         # Start config reload task
         async def reload_task():
             while True:
