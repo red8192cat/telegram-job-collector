@@ -44,8 +44,10 @@ class JobCollectorBot:
         if admin_id_str and admin_id_str.isdigit():
             self._admin_id = int(admin_id_str)
         
-        # Initialize managers
-        self.config_manager = ConfigManager()
+        # Initialize managers with backup support
+        logger.info("🔄 Initializing configuration manager with backup support...")
+        self.config_manager = ConfigManager()  # This will auto-backup on startup
+        
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
         self.data_manager = SQLiteManager(db_path)
         
@@ -98,9 +100,9 @@ class JobCollectorBot:
         # Initialize database first
         await self.data_manager.initialize()
         logger.info("Database initialized successfully")
+        
         # Import from config files if database is empty
         await self._import_on_startup()
-        
         
         # Core bot functionality is ready
         logger.info("Core bot functionality ready")
@@ -140,7 +142,7 @@ class JobCollectorBot:
                 old_bot_channels = self.config_manager.get_channels_to_monitor()
                 old_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
                 
-                self.config_manager.load_config()
+                self.config_manager.load_channels_config()
                 
                 new_bot_channels = self.config_manager.get_channels_to_monitor()
                 new_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
@@ -232,20 +234,41 @@ class JobCollectorBot:
             setup_error_monitoring(self.app.bot, admin_id)
             logger.info(f"✅ Error monitoring initialized for admin ID: {admin_id}")
             
-            # Send initial notification to admin
-            try:
-                await self.app.bot.send_message(
-                    chat_id=admin_id,
-                    text="🤖 **Bot Started Successfully**\n\n✅ Error monitoring active\n📊 Admin commands available",
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                logger.warning(f"Could not send startup notification to admin: {e}")
+            # Send enhanced startup notification with backup info
+            await self.notify_admin_about_startup()
                 
         except ImportError as e:
             logger.warning(f"Error monitoring not available: {e}")
         except Exception as e:
             logger.error(f"Failed to initialize error monitoring: {e}")
+    
+    async def notify_admin_about_startup(self):
+        """Notify admin about startup with backup info"""
+        if not self._admin_id:
+            return
+        
+        try:
+            # Get backup info
+            backups = self.config_manager.list_backups()
+            backup_count = len(backups)
+            latest_backup = backups[0]['created'] if backups else "None"
+            
+            startup_message = (
+                f"🤖 **Bot Started Successfully**\n\n"
+                f"✅ Error monitoring active\n"
+                f"📊 Admin commands available\n"
+                f"💾 Config backups: {backup_count} files\n"
+                f"📅 Latest backup: {latest_backup}\n\n"
+                f"Use `/admin backups` to manage config backups"
+            )
+            
+            await self.app.bot.send_message(
+                chat_id=self._admin_id,
+                text=startup_message,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.warning(f"Could not send startup notification with backup info: {e}")
     
     async def setup_bot_menu(self):
         """Set up the bot menu commands - AUTH COMMANDS HIDDEN FROM PUBLIC"""
@@ -289,49 +312,7 @@ class JobCollectorBot:
             logger.error(f"Error in scheduled job: {e}")
         finally:
             await self.app.shutdown()
-
-def main():
-    """Main function"""
-    token = os.getenv('TELEGRAM_BOT_TOKEN')
-    if not token:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
-        return
     
-    bot = JobCollectorBot(token)
-    
-    # Check if we should run the scheduled job
-    run_mode = os.getenv('RUN_MODE', 'webhook')
-    
-    if run_mode == 'scheduled':
-        # Run job collection once and exit
-        asyncio.run(bot.run_scheduled_job())
-    else:
-        # Run as webhook bot
-        logger.info("Starting Job Collector Bot...")
-        logger.info("✅ Core functionality: Bot monitoring enabled")
-        
-        # Log admin status
-        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
-        if admin_id_str and admin_id_str.isdigit():
-            logger.info("✅ Admin functionality: Enabled")
-        else:
-            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
-        
-        # Log user monitor status  
-        if bot.user_monitor:
-            logger.info("✅ Extended functionality: User account monitoring enabled")
-        else:
-            logger.info("ℹ️  Extended functionality: User account monitoring disabled")
-        
-        # Set up post_init callback to start background tasks
-        async def post_init(application):
-            await bot.start_background_tasks()
-        
-        bot.app.post_init = post_init
-        bot.app.run_polling()
-
-if __name__ == '__main__':
-    main()
     async def _import_on_startup(self):
         """Import from config files if database is empty"""
         try:
@@ -383,3 +364,46 @@ if __name__ == '__main__':
             
         except Exception as e:
             logger.error(f"⚙️ STARTUP: Failed to export current state: {e}")
+
+def main():
+    """Main function"""
+    token = os.getenv('TELEGRAM_BOT_TOKEN')
+    if not token:
+        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
+        return
+    
+    bot = JobCollectorBot(token)
+    
+    # Check if we should run the scheduled job
+    run_mode = os.getenv('RUN_MODE', 'webhook')
+    
+    if run_mode == 'scheduled':
+        # Run job collection once and exit
+        asyncio.run(bot.run_scheduled_job())
+    else:
+        # Run as webhook bot
+        logger.info("Starting Job Collector Bot...")
+        logger.info("✅ Core functionality: Bot monitoring enabled")
+        
+        # Log admin status
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        if admin_id_str and admin_id_str.isdigit():
+            logger.info("✅ Admin functionality: Enabled")
+        else:
+            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+        
+        # Log user monitor status  
+        if bot.user_monitor:
+            logger.info("✅ Extended functionality: User account monitoring enabled")
+        else:
+            logger.info("ℹ️  Extended functionality: User account monitoring disabled")
+        
+        # Set up post_init callback to start background tasks
+        async def post_init(application):
+            await bot.start_background_tasks()
+        
+        bot.app.post_init = post_init
+        bot.app.run_polling()
+
+if __name__ == '__main__':
+    main()
