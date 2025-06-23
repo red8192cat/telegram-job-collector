@@ -81,8 +81,33 @@ class CommandHandlers:
             logger.info(f"🔥 AUTH DEBUG: User {user_id} is not admin, ignoring message")
             return
         
-        # Check if user monitor exists
-        user_monitor = getattr(context.bot_data, 'user_monitor', None)
+        # 🔥 DEBUG: Check bot_data thoroughly
+        bot_data_keys = list(context.bot_data.keys()) if context.bot_data else []
+        logger.info(f"🔥 AUTH DEBUG: bot_data keys: {bot_data_keys}")
+        logger.info(f"🔥 AUTH DEBUG: bot_data type: {type(context.bot_data)}")
+        
+    async def handle_auth_message_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle authentication messages with DEBUG logging"""
+        message = update.message
+        if not message or not message.text:
+            logger.info("🔥 AUTH DEBUG: No message or text")
+            return
+        
+        user_id = update.effective_user.id
+        message_text = message.text.strip()
+        
+        logger.info(f"🔥 AUTH DEBUG: Received private message from user {user_id}: '{message_text}'")
+        
+        # Check if user is admin
+        is_admin = self._is_authorized_admin(update, context)
+        logger.info(f"🔥 AUTH DEBUG: User {user_id} is admin: {is_admin}")
+        
+        if not is_admin:
+            logger.info(f"🔥 AUTH DEBUG: User {user_id} is not admin, ignoring message")
+            return
+        
+        # 🔥 FIX: Use .get() instead of getattr()
+        user_monitor = context.bot_data.get('user_monitor', None)
         logger.info(f"🔥 AUTH DEBUG: User monitor exists: {user_monitor is not None}")
         
         if not user_monitor:
