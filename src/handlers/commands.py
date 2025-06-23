@@ -1,5 +1,5 @@
 """
-Command Handlers - Simplified version with merged /start and /menu
+Command Handlers - Simplified version with only /start (no /menu)
 """
 
 import logging
@@ -31,10 +31,9 @@ class CommandHandlers:
         return user_id == self._admin_id
     
     def register(self, app):
-        """Register simplified command handlers with merged /start and /menu"""
+        """Register simplified command handlers - NO /menu command"""
         # Essential user commands
         app.add_handler(CommandHandler("start", self.start_command))
-        app.add_handler(CommandHandler("menu", self.start_command))  # /menu redirects to /start
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("keywords", self.set_keywords_command))
         app.add_handler(CommandHandler("ignore_keywords", self.set_ignore_keywords_command))
@@ -52,14 +51,14 @@ class CommandHandlers:
             self.handle_auth_message
         ), group=10)
         
-        logger.info("Simplified command handlers with merged /start and /menu registered successfully")
+        logger.info("Simplified command handlers registered successfully (no /menu)")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start and /menu commands (merged)"""
+        """Handle /start command with interactive menu"""
         if not is_private_chat(update):
             return
         
-        logger.info(f"Start/Menu command from user {update.effective_user.id}")
+        logger.info(f"Start command from user {update.effective_user.id}")
         
         welcome_msg = (
             "🤖 Welcome to Job Collector Bot!\n\n"
