@@ -1,5 +1,5 @@
 """
-Callback Handlers - Enhanced with command pre-fill functionality
+Callback Handlers - Simplified menu interactions with merged /start
 """
 
 import logging
@@ -7,15 +7,7 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import (
-    create_main_menu, 
-    create_back_menu, 
-    get_help_text, 
-    get_keywords_help, 
-    get_ignore_help,
-    create_keywords_menu_with_prefill,
-    create_ignore_menu_with_prefill
-)
+from utils.helpers import create_main_menu, create_back_menu, get_help_text, get_keywords_help, get_ignore_help
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +18,7 @@ class CallbackHandlers:
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("Enhanced callback query handler registered")
+        logger.info("Callback query handler registered")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
@@ -38,21 +30,9 @@ class CallbackHandlers:
             await query.answer()
             
             if query.data == "menu_keywords":
-                # Show keywords help with pre-fill buttons
-                help_text = get_keywords_help()
-                await query.edit_message_text(
-                    help_text, 
-                    reply_markup=create_keywords_menu_with_prefill()
-                )
-                
+                await query.edit_message_text(get_keywords_help(), reply_markup=create_back_menu())
             elif query.data == "menu_ignore":
-                # Show ignore keywords help with pre-fill buttons
-                help_text = get_ignore_help()
-                await query.edit_message_text(
-                    help_text, 
-                    reply_markup=create_ignore_menu_with_prefill()
-                )
-                
+                await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu())
             elif query.data == "menu_show_settings":
                 chat_id = query.from_user.id
                 
@@ -84,10 +64,8 @@ class CallbackHandlers:
                 msg += "• /purge_ignore - Clear all ignore keywords"
                 
                 await query.edit_message_text(msg, reply_markup=create_back_menu())
-                
             elif query.data == "menu_help":
                 await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
-                
             elif query.data == "menu_back":
                 # Back button now shows the /start message with menu
                 welcome_msg = (
@@ -99,11 +77,5 @@ class CallbackHandlers:
                     "Use the menu below to get started:"
                 )
                 await query.edit_message_text(welcome_msg, reply_markup=create_main_menu())
-                
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")
-            # Try to answer the callback to prevent loading state
-            try:
-                await query.answer("❌ Something went wrong. Please try again.")
-            except:
-                pass
