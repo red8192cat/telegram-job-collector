@@ -1,5 +1,5 @@
 """
-Callback Handlers - Simplified menu interactions with merged settings
+Callback Handlers - Simplified menu interactions with merged /start
 """
 
 import logging
@@ -62,6 +62,15 @@ class CallbackHandlers:
             elif query.data == "menu_help":
                 await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
             elif query.data == "menu_back":
-                await query.edit_message_text("📋 Main Menu:", reply_markup=create_main_menu())
+                # Back button now shows the /start message with menu
+                welcome_msg = (
+                    "🤖 Welcome to Job Collector Bot!\n\n"
+                    "I help you collect job postings from configured channels based on your keywords.\n\n"
+                    "✅ Unlimited job forwards\n"
+                    "✅ Advanced keyword filtering\n"
+                    "✅ Ignore unwanted posts\n\n"
+                    "Use the menu below to get started:"
+                )
+                await query.edit_message_text(welcome_msg, reply_markup=create_main_menu())
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")

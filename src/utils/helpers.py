@@ -1,5 +1,5 @@
 """
-Helper utilities - Simplified menu and help system (Merged settings)
+Helper utilities - Simplified menu and help system with merged /start
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -27,11 +27,12 @@ def get_help_text():
     return (
         "📋 Job Collector Bot Help\n\n"
         "🎯 Main Commands:\n"
+        "• /start - Show main menu and welcome message\n"
         "• /keywords <list> - Set your search keywords (overwrites)\n"
         "• /ignore_keywords <list> - Set ignore keywords (overwrites)\n"
         "• /my_settings - Show your current keywords and ignore list\n"
         "• /purge_ignore - Clear all ignore keywords\n"
-        "• /menu - Show interactive menu\n\n"
+        "• /help - Show this help message\n\n"
         "💡 Keyword Types:\n"
         "• Required: [remote*], [remote*|online*] (MUST be in every message)\n"
         "• Exact: python, java, linux (exact words only)\n"

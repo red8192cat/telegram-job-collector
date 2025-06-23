@@ -1,5 +1,5 @@
 """
-Command Handlers - Simplified version with merged settings command
+Command Handlers - Simplified version with merged /start and /menu
 """
 
 import logging
@@ -31,10 +31,10 @@ class CommandHandlers:
         return user_id == self._admin_id
     
     def register(self, app):
-        """Register simplified command handlers with merged settings"""
+        """Register simplified command handlers with merged /start and /menu"""
         # Essential user commands
         app.add_handler(CommandHandler("start", self.start_command))
-        app.add_handler(CommandHandler("menu", self.menu_command))
+        app.add_handler(CommandHandler("menu", self.start_command))  # /menu redirects to /start
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("keywords", self.set_keywords_command))
         app.add_handler(CommandHandler("ignore_keywords", self.set_ignore_keywords_command))
@@ -52,14 +52,14 @@ class CommandHandlers:
             self.handle_auth_message
         ), group=10)
         
-        logger.info("Simplified command handlers with merged settings registered successfully")
+        logger.info("Simplified command handlers with merged /start and /menu registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
+        """Handle /start and /menu commands (merged)"""
         if not is_private_chat(update):
             return
         
-        logger.info(f"Start command from user {update.effective_user.id}")
+        logger.info(f"Start/Menu command from user {update.effective_user.id}")
         
         welcome_msg = (
             "🤖 Welcome to Job Collector Bot!\n\n"
@@ -72,14 +72,6 @@ class CommandHandlers:
         
         menu_markup = create_main_menu()
         await update.message.reply_text(welcome_msg, reply_markup=menu_markup)
-    
-    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /menu command"""
-        if not is_private_chat(update):
-            return
-        
-        menu_markup = create_main_menu()
-        await update.message.reply_text("📋 Main Menu:", reply_markup=menu_markup)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
