@@ -1,6 +1,5 @@
 """
-Command Handlers - Production version with channel management
-Updated with new keyword parsing logic (no quotes)
+Command Handlers - Simplified version with merged settings command
 """
 
 import logging
@@ -9,7 +8,7 @@ from telegram import Update
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import is_private_chat, create_main_menu, get_help_text, get_set_keywords_help, get_add_keyword_help
+from utils.helpers import is_private_chat, create_main_menu, get_help_text, get_set_keywords_help
 
 logger = logging.getLogger(__name__)
 
@@ -32,34 +31,28 @@ class CommandHandlers:
         return user_id == self._admin_id
     
     def register(self, app):
-        """Register all command handlers"""
+        """Register simplified command handlers with merged settings"""
+        # Essential user commands
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("menu", self.menu_command))
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("keywords", self.set_keywords_command))
         app.add_handler(CommandHandler("ignore_keywords", self.set_ignore_keywords_command))
-        app.add_handler(CommandHandler("add_keyword_to_list", self.add_keyword_command))
-        app.add_handler(CommandHandler("delete_keyword_from_list", self.delete_keyword_command))
-        app.add_handler(CommandHandler("add_ignore_keyword", self.add_ignore_keyword_command))
-        app.add_handler(CommandHandler("delete_ignore_keyword", self.delete_ignore_keyword_command))
+        app.add_handler(CommandHandler("my_settings", self.show_settings_command))
         app.add_handler(CommandHandler("purge_ignore", self.purge_ignore_keywords_command))
-        app.add_handler(CommandHandler("my_keywords", self.show_keywords_command))
-        app.add_handler(CommandHandler("my_ignore", self.show_ignore_keywords_command))
         
-        # SECURE authentication commands - only for authorized admin
+        # Admin commands (hidden from public menu)
         app.add_handler(CommandHandler("auth_status", self.auth_status_command))
         app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
-        
-        # Admin commands
         app.add_handler(CommandHandler("admin", self.admin_command))
         
         # Authentication handler for non-command messages (admin only)
         app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
             self.handle_auth_message
-        ), group=10)  # Very low priority
+        ), group=10)
         
-        logger.info("All command handlers registered successfully")
+        logger.info("Simplified command handlers with merged settings registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
@@ -71,8 +64,9 @@ class CommandHandlers:
         welcome_msg = (
             "🤖 Welcome to Job Collector Bot!\n\n"
             "I help you collect job postings from configured channels based on your keywords.\n\n"
-            "✅ All users get unlimited job forwards\n"
-            "✅ Advanced keyword filtering with ignore list\n\n"
+            "✅ Unlimited job forwards\n"
+            "✅ Advanced keyword filtering\n"
+            "✅ Ignore unwanted posts\n\n"
             "Use the menu below to get started:"
         )
         
@@ -95,7 +89,7 @@ class CommandHandlers:
         await update.message.reply_text(get_help_text())
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command - UPDATED with new parsing logic"""
+        """Handle /keywords command"""
         if not is_private_chat(update):
             return
         
@@ -125,14 +119,14 @@ class CommandHandlers:
         await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
     
     async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ignore_keywords command - UPDATED with new parsing logic"""
+        """Handle /ignore_keywords command"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide ignore keywords: /ignore_keywords java*, senior*, manage*")
+            await update.message.reply_text("Please provide ignore keywords:\n/ignore_keywords java*, senior*, manage*")
             return
         
         keywords_text = ' '.join(context.args)
@@ -154,86 +148,34 @@ class CommandHandlers:
         keywords_str = ', '.join(keywords)
         await update.message.reply_text(f"✅ Ignore keywords set: {keywords_str}")
     
-    async def add_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /add_keyword_to_list command"""
+    async def show_settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /my_settings command - shows both keywords and ignore keywords"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
-        
-        if not context.args:
-            await update.message.reply_text(get_add_keyword_help())
-            return
-        
-        keyword = ' '.join(context.args).strip().lower()
-        
-        if await self.data_manager.add_user_keyword(chat_id, keyword):
-            await update.message.reply_text(f"✅ Added keyword: {keyword}")
-        else:
-            await update.message.reply_text(f"Keyword '{keyword}' already in your list!")
-    
-    async def delete_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /delete_keyword_from_list command"""
-        if not is_private_chat(update):
-            return
-        
-        chat_id = update.effective_chat.id
-        
-        if not context.args:
-            await update.message.reply_text("Please provide a keyword: /delete_keyword_from_list python")
-            return
-        
-        keyword_to_delete = ' '.join(context.args).strip().lower()
         keywords = await self.data_manager.get_user_keywords(chat_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
         
-        if not keywords:
-            await update.message.reply_text("You don't have any keywords set!")
-            return
+        # Build combined message without problematic Markdown
+        msg = "⚙️ Your Current Settings\n\n"
         
-        if await self.data_manager.remove_user_keyword(chat_id, keyword_to_delete):
-            await update.message.reply_text(f"✅ Removed keyword: {keyword_to_delete}")
+        if keywords:
+            msg += f"📝 Keywords: {', '.join(keywords)}\n\n"
         else:
-            current = ', '.join(keywords)
-            await update.message.reply_text(
-                f"❌ Keyword '{keyword_to_delete}' not found!\n\n"
-                f"Your current keywords: {current}"
-            )
-    
-    async def add_ignore_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /add_ignore_keyword command"""
-        if not is_private_chat(update):
-            return
+            msg += "📝 Keywords: None set\nUse /keywords to set them.\n\n"
         
-        chat_id = update.effective_chat.id
-        
-        if not context.args:
-            await update.message.reply_text("Please provide an ignore keyword: /add_ignore_keyword java*")
-            return
-        
-        keyword = ' '.join(context.args).strip().lower()
-        
-        if await self.data_manager.add_user_ignore_keyword(chat_id, keyword):
-            await update.message.reply_text(f"✅ Added ignore keyword: {keyword}")
+        if ignore_keywords:
+            msg += f"🚫 Ignore Keywords: {', '.join(ignore_keywords)}\n\n"
         else:
-            await update.message.reply_text(f"Ignore keyword '{keyword}' already in your list!")
-    
-    async def delete_ignore_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /delete_ignore_keyword command"""
-        if not is_private_chat(update):
-            return
+            msg += "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.\n\n"
         
-        chat_id = update.effective_chat.id
+        msg += "💡 Quick Commands:\n"
+        msg += "• /keywords - Update search keywords\n"
+        msg += "• /ignore_keywords - Update ignore keywords\n"
+        msg += "• /purge_ignore - Clear all ignore keywords"
         
-        if not context.args:
-            await update.message.reply_text("Please provide an ignore keyword: /delete_ignore_keyword java*")
-            return
-        
-        keyword = ' '.join(context.args).strip().lower()
-        
-        if await self.data_manager.remove_user_ignore_keyword(chat_id, keyword):
-            await update.message.reply_text(f"✅ Removed ignore keyword: {keyword}")
-        else:
-            await update.message.reply_text(f"Ignore keyword '{keyword}' not found in your list!")
+        await update.message.reply_text(msg)
     
     async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /purge_ignore command"""
@@ -247,33 +189,30 @@ class CommandHandlers:
         else:
             await update.message.reply_text("You don't have any ignore keywords set!")
     
-    async def show_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /my_keywords command"""
-        if not is_private_chat(update):
+    # Authentication handler for admin commands
+    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle authentication messages - ADMIN ONLY"""
+        if not is_private_chat(update) or not update.message:
             return
         
-        chat_id = update.effective_chat.id
-        keywords = await self.data_manager.get_user_keywords(chat_id)
+        if not self._is_authorized_admin(update, context):
+            return  # Ignore non-admin messages
         
-        if keywords:
-            keywords_str = ', '.join(keywords)
-            await update.message.reply_text(f"📝 Your keywords: {keywords_str}")
-        else:
-            await update.message.reply_text("You haven't set any keywords yet!")
-    
-    async def show_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /my_ignore command"""
-        if not is_private_chat(update):
-            return
+        user_monitor = context.bot_data.get('user_monitor', None)
+        if not user_monitor:
+            return  # No user monitor available
         
-        chat_id = update.effective_chat.id
-        ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
-        
-        if ignore_keywords:
-            ignore_str = ', '.join(ignore_keywords)
-            await update.message.reply_text(f"🚫 Your ignore keywords: {ignore_str}")
-        else:
-            await update.message.reply_text("You haven't set any ignore keywords yet!")
+        if user_monitor.is_waiting_for_auth():
+            user_id = update.effective_user.id
+            message_text = update.message.text
+            handled = await user_monitor.handle_auth_message(user_id, message_text)
+            
+            if handled:
+                # Delete the auth message for security
+                try:
+                    await update.message.delete()
+                except Exception:
+                    pass  # Ignore deletion errors
     
     # ADMIN COMMANDS
     async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -297,11 +236,11 @@ class CommandHandlers:
         elif status == "not_initialized":
             await update.message.reply_text("❌ User account monitoring failed to initialize.")
         elif status == "waiting_for_code":
-            await update.message.reply_text("📱 **Waiting for SMS verification code**\n\nPlease send the code you received.", parse_mode='Markdown')
+            await update.message.reply_text("📱 Waiting for SMS verification code\n\nPlease send the code you received.")
         elif status == "waiting_for_2fa":
-            await update.message.reply_text("🔐 **Waiting for 2FA password**\n\nPlease send your two-factor authentication password.", parse_mode='Markdown')
+            await update.message.reply_text("🔐 Waiting for 2FA password\n\nPlease send your two-factor authentication password.")
         elif status == "authenticated":
-            await update.message.reply_text("✅ **User account authenticated!**\n\nMonitoring is active and working.", parse_mode='Markdown')
+            await update.message.reply_text("✅ User account authenticated!\n\nMonitoring is active and working.")
         else:
             await update.message.reply_text("❓ Unknown status. Use /auth_restart to restart authentication.")
 
@@ -324,7 +263,7 @@ class CommandHandlers:
         try:
             success = await user_monitor.restart_auth(chat_id)
             if success:
-                await update.message.reply_text("🔄 **Authentication restarted**\n\nCheck your phone for the verification code.", parse_mode='Markdown')
+                await update.message.reply_text("🔄 Authentication restarted\n\nCheck your phone for the verification code.")
             else:
                 await update.message.reply_text("❌ Failed to restart authentication.")
         except Exception as e:
@@ -341,22 +280,21 @@ class CommandHandlers:
         
         if not context.args:
             await update.message.reply_text(
-                "📋 **Admin Commands**\n\n"
-                "**System:**\n"
-                "• `/admin health` - System health check\n"
-                "• `/admin stats` - Database statistics\n"
-                "• `/admin errors` - Show recent errors\n\n"
-                "**Channel Management:**\n"
-                "• `/admin channels` - List all channels\n"
-                "• `/admin add_user_channel @channel` - Add user monitor channel\n"
-                "• `/admin remove_user_channel @channel` - Remove user channel\n"
-                "• `/admin export_config` - Update config.json\n\n"
-                "**Data Management:**\n"
-                "• `/admin export` - Export all data to JSON files\n"
-                "• `/admin import` - Import from JSON files\n"
-                "• `/admin backup_manual` - Create manual backup\n"
-                "• `/admin list_backups` - List all backups\n",
-                parse_mode='Markdown'
+                "📋 Admin Commands\n\n"
+                "System:\n"
+                "• /admin health - System health check\n"
+                "• /admin stats - Database statistics\n"
+                "• /admin errors - Show recent errors\n\n"
+                "Channel Management:\n"
+                "• /admin channels - List all channels\n"
+                "• /admin add_user_channel @channel - Add user monitor channel\n"
+                "• /admin remove_user_channel @channel - Remove user channel\n"
+                "• /admin export_config - Update config.json\n\n"
+                "Data Management:\n"
+                "• /admin export - Export all data to JSON files\n"
+                "• /admin import - Import from JSON files\n"
+                "• /admin backup_manual - Create manual backup\n"
+                "• /admin list_backups - List all backups"
             )
             return
         
@@ -410,10 +348,10 @@ class CommandHandlers:
             else:
                 health_status.append("ℹ️ User Monitor: Not configured")
             
-            message = "🏥 **System Health Check**\n\n"
+            message = "🏥 System Health Check\n\n"
             message += "\n".join(health_status)
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
         except Exception as e:
             await update.message.reply_text(f"❌ Health check failed: {str(e)}")
     
@@ -429,15 +367,15 @@ class CommandHandlers:
             user_channels = await self.data_manager.get_user_monitored_channels_db()
             
             message = (
-                f"📊 **Database Statistics**\n\n"
+                f"📊 Database Statistics\n\n"
                 f"👥 Total Users: {total_users}\n"
                 f"🎯 Total Keywords: {total_keywords}\n"
                 f"📈 Avg Keywords/User: {total_keywords / total_users if total_users > 0 else 0:.1f}\n\n"
                 f"📺 Bot Channels: {len(bot_channels)}\n"
-                f"👤 User Channels: {len(user_channels)}\n"
+                f"👤 User Channels: {len(user_channels)}"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
         except Exception as e:
             await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
     
@@ -457,10 +395,10 @@ class CommandHandlers:
         recent_errors = collector.get_recent_errors(24)
         
         if not recent_errors:
-            await update.message.reply_text("✅ **No errors in last 24 hours**\n\nBot is running smoothly!", parse_mode='Markdown')
+            await update.message.reply_text("✅ No errors in last 24 hours\n\nBot is running smoothly!")
             return
         
-        message = f"📋 **Recent Errors** (Last 24h)\n\n"
+        message = f"📋 Recent Errors (Last 24h)\n\n"
         message += f"📊 Total: {len(recent_errors)} errors\n\n"
         
         for error in recent_errors[-5:]:  # Show last 5
@@ -469,7 +407,7 @@ class CommandHandlers:
             message += f"📍 {error['module']}.py:{error['lineno']}\n"
             message += f"📝 {error['message'][:100]}\n\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
     
     async def admin_channels_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin channels command"""
@@ -549,46 +487,58 @@ class CommandHandlers:
     async def admin_export_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin export_config command"""
         try:
-            user_monitor = context.bot_data.get('user_monitor', None)
-            if user_monitor:
-                await user_monitor._export_config()
-                await update.message.reply_text("✅ Config exported\n\nDatabase channels saved to config.json")
-            else:
-                await update.message.reply_text("❌ User monitor not available for config export.")
-            
-        except Exception as e:
-            await update.message.reply_text(f"❌ Error exporting config: {str(e)}")
-    
-    # New Data Management Admin Commands
-    async def admin_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin export command"""
-        try:
-            # Export channels
+            # Export current database state to config files
             bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
             
-            # Get config manager from bot data or create new instance
-            if hasattr(self, 'config_manager'):
-                config_manager = self.config_manager
-            else:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
-            
+            # Add missing config_manager reference
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
             config_manager.export_channels_config(bot_channels, user_channels)
             
-            # Export users
             users_data = await self.data_manager.export_all_users_for_config()
             config_manager.export_users_config(users_data)
             
             message = (
-                f"✅ **Export Complete**\n\n"
-                f"📺 Channels: {len(bot_channels)} bot, {len(user_channels)} user\n"
-                f"👥 Users: {len(users_data)} users\n\n"
+                f"✅ Configuration Exported\n\n"
+                f"📺 Bot Channels: {len(bot_channels)}\n"
+                f"👤 User Channels: {len(user_channels)}\n"
+                f"👥 Users: {len(users_data)}\n\n"
                 f"Files updated:\n"
-                f"• `data/config/channels.json`\n"
-                f"• `data/config/users.json`"
+                f"• data/config/channels.json\n"
+                f"• data/config/users.json"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Export failed: {str(e)}")
+    
+    async def admin_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin export command"""
+        try:
+            # Same as export_config but with different messaging
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
+            config_manager.export_channels_config(bot_channels, user_channels)
+            
+            users_data = await self.data_manager.export_all_users_for_config()
+            config_manager.export_users_config(users_data)
+            
+            message = (
+                f"✅ Data Export Complete\n\n"
+                f"📊 Exported:\n"
+                f"• {len(bot_channels)} bot channels\n"
+                f"• {len(user_channels)} user channels\n"
+                f"• {len(users_data)} users with settings\n\n"
+                f"📁 Files created:\n"
+                f"• data/config/channels.json\n"
+                f"• data/config/users.json\n\n"
+                f"🔄 Use /admin import to restore from these files"
+            )
+            
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Export failed: {str(e)}")
@@ -596,34 +546,30 @@ class CommandHandlers:
     async def admin_import_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin import command"""
         try:
-            # Get config manager
-            if hasattr(self, 'config_manager'):
-                config_manager = self.config_manager
-            else:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
             
-            # Load and import channels
-            config_manager.load_channels_config()
-            bot_channels = config_manager.get_channels_to_monitor()
-            user_channels = config_manager.get_user_monitored_channels()
+            # Import from config files
+            config_bot_channels = config_manager.get_channels_to_monitor()
+            config_user_channels = config_manager.get_user_monitored_channels()
             
-            if bot_channels or user_channels:
-                await self.data_manager.import_channels_from_config(bot_channels, user_channels)
+            if config_bot_channels or config_user_channels:
+                await self.data_manager.import_channels_from_config(config_bot_channels, config_user_channels)
             
-            # Load and import users
             users_data = config_manager.load_users_config()
             if users_data:
                 await self.data_manager.import_users_from_config(users_data)
             
             message = (
-                f"✅ **Import Complete**\n\n"
-                f"📺 Channels: {len(bot_channels)} bot, {len(user_channels)} user\n"
-                f"👥 Users: {len(users_data)} users\n\n"
-                f"⚠️ **Bot restart recommended** to reload monitoring"
+                f"✅ Data Import Complete\n\n"
+                f"📊 Imported:\n"
+                f"• {len(config_bot_channels)} bot channels\n"
+                f"• {len(config_user_channels)} user channels\n"
+                f"• {len(users_data)} users with settings\n\n"
+                f"⚠️ Warning: This overwrites existing database data"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Import failed: {str(e)}")
@@ -631,88 +577,71 @@ class CommandHandlers:
     async def admin_backup_manual_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin backup_manual command"""
         try:
-            # Get config manager
-            if hasattr(self, 'config_manager'):
-                config_manager = self.config_manager
-            else:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
             
+            # First export current data
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            config_manager.export_channels_config(bot_channels, user_channels)
+            
+            users_data = await self.data_manager.export_all_users_for_config()
+            config_manager.export_users_config(users_data)
+            
+            # Then create manual backup
             timestamp = config_manager.create_manual_backup()
+            
             if timestamp:
-                await update.message.reply_text(
-                    f"✅ **Manual backup created**\n\nTimestamp: `{timestamp}`\n\n"
-                    f"Files backed up:\n"
-                    f"• `channels_manual_{timestamp}.json`\n"
-                    f"• `users_manual_{timestamp}.json`",
-                    parse_mode='Markdown'
+                message = (
+                    f"✅ Manual Backup Created\n\n"
+                    f"🕐 Timestamp: {timestamp}\n"
+                    f"📁 Location: data/config/backups/\n\n"
+                    f"📊 Backed up:\n"
+                    f"• {len(bot_channels)} bot channels\n" 
+                    f"• {len(user_channels)} user channels\n"
+                    f"• {len(users_data)} users with settings\n\n"
+                    f"💡 Manual backups are never auto-deleted"
                 )
             else:
-                await update.message.reply_text("❌ Failed to create manual backup")
+                message = "❌ Failed to create manual backup"
+            
+            await update.message.reply_text(message)
+            
         except Exception as e:
             await update.message.reply_text(f"❌ Backup failed: {str(e)}")
     
     async def admin_list_backups_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin list_backups command"""
         try:
-            # Get config manager
-            if hasattr(self, 'config_manager'):
-                config_manager = self.config_manager
-            else:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
-            
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
             backups = config_manager.list_backups()
             
             if not backups:
-                await update.message.reply_text("📭 No backups found")
+                await update.message.reply_text("📭 No backups found\n\nUse /admin backup_manual to create one.")
                 return
             
-            message = f"📋 **Available Backups** ({len(backups)} files)\n\n"
+            message = f"📋 Available Backups ({len(backups)} total)\n\n"
             
-            auto_backups = [b for b in backups if b['type'] == 'auto']
+            # Group by type
             manual_backups = [b for b in backups if b['type'] == 'manual']
-            
-            if auto_backups:
-                message += f"**Automatic Backups** ({len(auto_backups)}):\n"
-                for backup in auto_backups[:5]:  # Show last 5
-                    message += f"• `{backup['filename']}` - {backup['created']}\n"
-                if len(auto_backups) > 5:
-                    message += f"... and {len(auto_backups) - 5} more\n"
-                message += "\n"
+            auto_backups = [b for b in backups if b['type'] == 'auto']
             
             if manual_backups:
-                message += f"**Manual Backups** ({len(manual_backups)}):\n"
-                for backup in manual_backups[:5]:  # Show last 5
-                    message += f"• `{backup['filename']}` - {backup['created']}\n"
-                if len(manual_backups) > 5:
-                    message += f"... and {len(manual_backups) - 5} more\n"
+                message += f"🔧 Manual Backups ({len(manual_backups)}):\n"
+                for backup in manual_backups[:10]:  # Show max 10
+                    message += f"• {backup['filename']} - {backup['created']}\n"
+                message += "\n"
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            if auto_backups:
+                message += f"🤖 Auto Backups ({len(auto_backups)}):\n"
+                for backup in auto_backups[:5]:  # Show max 5
+                    message += f"• {backup['filename']} - {backup['created']}\n"
+                if len(auto_backups) > 5:
+                    message += f"... and {len(auto_backups) - 5} more\n"
+            
+            message += f"\n💡 Auto backups are cleaned up automatically"
+            
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error listing backups: {str(e)}")
-    
-    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle authentication messages"""
-        if not update.message or not update.message.text:
-            return
-        
-        # Only handle for admin user
-        if not self._is_authorized_admin(update, context):
-            return
-        
-        user_monitor = context.bot_data.get('user_monitor', None)
-        if not user_monitor or not user_monitor.is_waiting_for_auth():
-            return
-        
-        user_id = update.effective_user.id
-        message_text = update.message.text.strip()
-        
-        # Only handle likely auth codes/passwords
-        if message_text.isdigit() and 5 <= len(message_text) <= 6:
-            # SMS code
-            await user_monitor.handle_auth_message(user_id, message_text)
-        elif len(message_text) >= 8 and not message_text.isdigit():
-            # 2FA password  
-            await user_monitor.handle_auth_message(user_id, message_text)
