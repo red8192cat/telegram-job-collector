@@ -1,5 +1,5 @@
 """
-Message Handlers - WORKING VERSION - Channel processing only
+Message Handlers - Production version with clean logging
 """
 
 import asyncio
@@ -23,9 +23,8 @@ class MessageHandlers:
         logger.info("MessageHandlers initialized")
     
     def register(self, app):
-        """Register message handlers - SAFE VERSION"""
+        """Register message handlers - Production version"""
         # ONLY handle channel/group messages (never private)
-        # Use specific chat type filters to be absolutely sure
         app.add_handler(MessageHandler(
             filters.TEXT & 
             ~filters.COMMAND & 
@@ -43,18 +42,18 @@ class MessageHandlers:
         
         # Safety check - should never be private due to filters
         if message.chat.type == 'private':
-            logger.warning("❌ Private message in channel handler - this shouldn't happen!")
+            logger.warning("Private message in channel handler - this shouldn't happen!")
             return
         
         chat_id = message.chat.id
         channel_username = message.chat.username
         
-        # Check if this channel is monitored
+        # Check if this channel is monitored by bot
         if not self.config_manager.is_monitored_channel(chat_id, channel_username):
             return
         
         channel_display = f"@{channel_username}" if channel_username else str(chat_id)
-        logger.info(f"📨 Processing message from channel: {channel_display}")
+        logger.info(f"📨 EVENT: Processing message from channel: {channel_display}")
         
         # Get all users with keywords
         all_users = await self.data_manager.get_all_users_with_keywords()
@@ -86,27 +85,26 @@ class MessageHandlers:
                 )
                 
                 forwarded_count += 1
-                logger.info(f"✅ Forwarded job to user {user_chat_id}")
                 await asyncio.sleep(0.5)  # Rate limiting
                 
             except TelegramError as e:
-                logger.error(f"❌ Failed to forward to user {user_chat_id}: {e}")
+                logger.error(f"Failed to forward to user {user_chat_id}: {e}")
         
         if forwarded_count > 0:
-            logger.info(f"📊 Forwarded message to {forwarded_count} users")
+            logger.info(f"📤 FORWARD: Bot forwarded message to {forwarded_count} users")
     
     async def collect_and_repost_jobs(self, bot):
         """Manual job collection function for scheduled runs"""
-        logger.info("Starting manual job collection...")
+        logger.info("⚙️ SYSTEM: Starting manual job collection...")
         
         channels = self.config_manager.get_channels_to_monitor()
         if not channels:
-            logger.info("No channels configured for monitoring")
+            logger.info("⚙️ SYSTEM: No channels configured for monitoring")
             return
         
         all_users = await self.data_manager.get_all_users_with_keywords()
         if not all_users:
-            logger.info("No users with keywords found")
+            logger.info("⚙️ SYSTEM: No users with keywords found")
             return
         
         since_time = datetime.now() - timedelta(hours=12)
@@ -114,14 +112,14 @@ class MessageHandlers:
         
         for channel in channels:
             try:
-                logger.info(f"📋 Checking channel: {channel}")
+                logger.info(f"⚙️ SYSTEM: Checking channel: {channel}")
                 
                 messages = []
                 async for message in bot.get_chat_history(chat_id=channel, limit=50):
                     if message.date > since_time and message.text:
                         messages.append(message)
                 
-                logger.info(f"Found {len(messages)} recent messages in {channel}")
+                logger.info(f"⚙️ SYSTEM: Found {len(messages)} recent messages in {channel}")
                 
                 for message in messages:
                     for user_chat_id, keywords in all_users.items():
@@ -146,13 +144,12 @@ class MessageHandlers:
                             )
                             
                             total_forwarded += 1
-                            logger.info(f"✅ Manual forward to user {user_chat_id}")
                             await asyncio.sleep(0.5)
                             
                         except TelegramError as e:
-                            logger.error(f"❌ Failed to forward to user {user_chat_id}: {e}")
+                            logger.error(f"Failed to forward to user {user_chat_id}: {e}")
             
             except Exception as e:
-                logger.error(f"❌ Error processing channel {channel}: {e}")
+                logger.error(f"⚙️ SYSTEM: Error processing channel {channel}: {e}")
         
-        logger.info(f"✅ Manual job collection completed - {total_forwarded} messages forwarded")
+        logger.info(f"⚙️ SYSTEM: Manual job collection completed - {total_forwarded} messages forwarded")

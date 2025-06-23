@@ -1,5 +1,5 @@
 """
-Command Handlers - DEBUG VERSION with enhanced auth logging
+Command Handlers - Production version with channel management
 """
 
 import logging
@@ -23,7 +23,7 @@ class CommandHandlers:
             logger.info(f"Admin ID configured: {self._admin_id}")
     
     def _is_authorized_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check if user is authorized admin - INDEPENDENT of user monitor"""
+        """Check if user is authorized admin"""
         if not self._admin_id:
             return False
         
@@ -52,118 +52,17 @@ class CommandHandlers:
         # Admin commands
         app.add_handler(CommandHandler("admin", self.admin_command))
         
-        # 🔥 DEBUG: Authentication handler for non-command messages (admin only)
+        # Authentication handler for non-command messages (admin only)
         app.add_handler(MessageHandler(
             filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
-            self.handle_auth_message_debug
+            self.handle_auth_message
         ), group=10)  # Very low priority
         
-        logger.info("All command handlers registered successfully (WITH AUTH DEBUG)")
+        logger.info("All command handlers registered successfully")
     
-    # 🔥 DEBUG: Enhanced authentication message handler
-    async def handle_auth_message_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle authentication messages with DEBUG logging"""
-        message = update.message
-        if not message or not message.text:
-            logger.info("🔥 AUTH DEBUG: No message or text")
-            return
-        
-        user_id = update.effective_user.id
-        message_text = message.text.strip()
-        
-        logger.info(f"🔥 AUTH DEBUG: Received private message from user {user_id}: '{message_text}'")
-        
-        # Check if user is admin
-        is_admin = self._is_authorized_admin(update, context)
-        logger.info(f"🔥 AUTH DEBUG: User {user_id} is admin: {is_admin}")
-        
-        if not is_admin:
-            logger.info(f"🔥 AUTH DEBUG: User {user_id} is not admin, ignoring message")
-            return
-        
-        # 🔥 DEBUG: Check bot_data thoroughly
-        bot_data_keys = list(context.bot_data.keys()) if context.bot_data else []
-        logger.info(f"🔥 AUTH DEBUG: bot_data keys: {bot_data_keys}")
-        logger.info(f"🔥 AUTH DEBUG: bot_data type: {type(context.bot_data)}")
-        
-    async def handle_auth_message_debug(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle authentication messages with DEBUG logging"""
-        message = update.message
-        if not message or not message.text:
-            logger.info("🔥 AUTH DEBUG: No message or text")
-            return
-        
-        user_id = update.effective_user.id
-        message_text = message.text.strip()
-        
-        logger.info(f"🔥 AUTH DEBUG: Received private message from user {user_id}: '{message_text}'")
-        
-        # Check if user is admin
-        is_admin = self._is_authorized_admin(update, context)
-        logger.info(f"🔥 AUTH DEBUG: User {user_id} is admin: {is_admin}")
-        
-        if not is_admin:
-            logger.info(f"🔥 AUTH DEBUG: User {user_id} is not admin, ignoring message")
-            return
-        
-        # 🔥 FIX: Use .get() instead of getattr()
-        user_monitor = context.bot_data.get('user_monitor', None)
-        logger.info(f"🔥 AUTH DEBUG: User monitor exists: {user_monitor is not None}")
-        
-        if not user_monitor:
-            logger.info("🔥 AUTH DEBUG: No user monitor found in bot_data")
-            await message.reply_text("🔥 DEBUG: No user monitor available")
-            return
-        
-        # Check if waiting for auth
-        waiting_for_auth = user_monitor.is_waiting_for_auth()
-        logger.info(f"🔥 AUTH DEBUG: User monitor waiting for auth: {waiting_for_auth}")
-        
-        if not waiting_for_auth:
-            logger.info("🔥 AUTH DEBUG: User monitor not waiting for auth")
-            await message.reply_text("🔥 DEBUG: User monitor not waiting for authentication")
-            return
-        
-        # Check auth status
-        auth_status = user_monitor.get_auth_status()
-        logger.info(f"🔥 AUTH DEBUG: Auth status: {auth_status}")
-        
-        # Process the message
-        logger.info(f"🔥 AUTH DEBUG: Processing message '{message_text}' as potential auth code")
-        
-        # Check if it looks like auth code/password
-        if message_text.isdigit() and 5 <= len(message_text) <= 6:
-            logger.info(f"🔥 AUTH DEBUG: Message looks like SMS code: {len(message_text)} digits")
-            await message.reply_text(f"🔥 DEBUG: Processing SMS code ({len(message_text)} digits)")
-            
-            try:
-                handled = await user_monitor.handle_auth_message(user_id, message_text)
-                logger.info(f"🔥 AUTH DEBUG: SMS code handling result: {handled}")
-                await message.reply_text(f"🔥 DEBUG: SMS code processed, result: {handled}")
-            except Exception as e:
-                logger.error(f"🔥 AUTH DEBUG: Error processing SMS code: {e}")
-                await message.reply_text(f"🔥 DEBUG: Error processing SMS code: {str(e)}")
-                
-        elif len(message_text) >= 8 and not message_text.isdigit():
-            logger.info(f"🔥 AUTH DEBUG: Message looks like 2FA password: {len(message_text)} chars")
-            await message.reply_text(f"🔥 DEBUG: Processing 2FA password ({len(message_text)} chars)")
-            
-            try:
-                handled = await user_monitor.handle_auth_message(user_id, message_text)
-                logger.info(f"🔥 AUTH DEBUG: 2FA password handling result: {handled}")
-                await message.reply_text(f"🔥 DEBUG: 2FA password processed, result: {handled}")
-            except Exception as e:
-                logger.error(f"🔥 AUTH DEBUG: Error processing 2FA password: {e}")
-                await message.reply_text(f"🔥 DEBUG: Error processing 2FA password: {str(e)}")
-        else:
-            logger.info(f"🔥 AUTH DEBUG: Message doesn't look like auth code: '{message_text}'")
-            await message.reply_text(f"🔥 DEBUG: Message doesn't look like auth code")
-    
-    # All the existing command methods stay exactly the same...
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command"""
         if not is_private_chat(update):
-            logger.info("Start command ignored - not a private chat")
             return
         
         logger.info(f"Start command from user {update.effective_user.id}")
@@ -179,106 +78,20 @@ class CommandHandlers:
         menu_markup = create_main_menu()
         await update.message.reply_text(welcome_msg, reply_markup=menu_markup)
     
-    async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /auth_status command - ADMIN ONLY with DEBUG"""
-        if not is_private_chat(update) or not update.message:
-            return
-        
-        # Security check - only authorized admin
-        if not self._is_authorized_admin(update, context):
-            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
-            return
-        
-        logger.info("🔥 AUTH DEBUG: /auth_status command called")
-        
-        # 🔥 DEBUG: Check what's actually in bot_data
-        bot_data_keys = list(context.bot_data.keys()) if context.bot_data else []
-        logger.info(f"🔥 AUTH DEBUG: bot_data keys: {bot_data_keys}")
-        logger.info(f"🔥 AUTH DEBUG: bot_data contents: {context.bot_data}")
-        
-        user_monitor = getattr(context.bot_data, 'user_monitor', None)
-        logger.info(f"🔥 AUTH DEBUG: User monitor found in bot_data: {user_monitor is not None}")
-        
-        # 🔥 DEBUG: Try alternative ways to access user monitor
-        user_monitor_alt = context.bot_data.get('user_monitor', None)
-        logger.info(f"🔥 AUTH DEBUG: User monitor via .get(): {user_monitor_alt is not None}")
-        
-        if not user_monitor and not user_monitor_alt:
-            await update.message.reply_text("❌ User account monitoring is not enabled.\n\n🔥 DEBUG: User monitor not found in bot_data")
-            return
-        
-        # Use whichever method found the user monitor
-        monitor = user_monitor or user_monitor_alt
-        
-        status = monitor.get_auth_status()
-        logger.info(f"🔥 AUTH DEBUG: Auth status: {status}")
-        
-        if status == "disabled":
-            await update.message.reply_text("ℹ️ User account monitoring is disabled (no credentials configured).")
-        elif status == "not_initialized":
-            await update.message.reply_text("❌ User account monitoring failed to initialize.")
-        elif status == "waiting_for_code":
-            await update.message.reply_text("📱 **Waiting for SMS verification code**\n\nPlease send the code you received.", parse_mode='Markdown')
-        elif status == "waiting_for_2fa":
-            await update.message.reply_text("🔐 **Waiting for 2FA password**\n\nPlease send your two-factor authentication password.", parse_mode='Markdown')
-        elif status == "authenticated":
-            await update.message.reply_text("✅ **User account authenticated!**\n\nMonitoring is active and working.", parse_mode='Markdown')
-        else:
-            await update.message.reply_text("❓ Unknown status. Use /auth_restart to restart authentication.")
-
-    async def auth_restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /auth_restart command - ADMIN ONLY with DEBUG"""
-        if not is_private_chat(update) or not update.message:
-            return
-        
-        # Security check - only authorized admin
-        if not self._is_authorized_admin(update, context):
-            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
-            return
-        
-        logger.info("🔥 AUTH DEBUG: /auth_restart command called")
-        
-        user_monitor = getattr(context.bot_data, 'user_monitor', None)
-        logger.info(f"🔥 AUTH DEBUG: User monitor found for restart: {user_monitor is not None}")
-        
-        if not user_monitor:
-            await update.message.reply_text("❌ User account monitoring is not enabled.")
-            return
-        
-        chat_id = update.effective_chat.id
-        
-        try:
-            success = await user_monitor.restart_auth(chat_id)
-            logger.info(f"🔥 AUTH DEBUG: Restart auth result: {success}")
-            if success:
-                await update.message.reply_text("🔄 **Authentication restarted**\n\nCheck your phone for the verification code.", parse_mode='Markdown')
-            else:
-                await update.message.reply_text("❌ Failed to restart authentication.")
-        except Exception as e:
-            logger.error(f"🔥 AUTH DEBUG: Error restarting authentication: {e}")
-            await update.message.reply_text(f"❌ Error restarting authentication: {str(e)}")
-    
-    # Simplified versions of other commands for space...
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /menu command"""
         if not is_private_chat(update):
             return
+        
         menu_markup = create_main_menu()
         await update.message.reply_text("📋 Main Menu:", reply_markup=menu_markup)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /help command"""
         if not is_private_chat(update):
             return
+        
         await update.message.reply_text(get_help_text())
-    
-    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        if not is_private_chat(update) or not update.message:
-            return
-        if not self._is_authorized_admin(update, context):
-            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
-            return
-        await update.message.reply_text("📋 **Admin Commands**\n\n• `/auth_status` - Check auth status\n• `/auth_restart` - Restart auth", parse_mode='Markdown')
-    
-    # Add minimal versions of other commands here if needed...
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /keywords command"""
@@ -365,7 +178,6 @@ class CommandHandlers:
         if await self.data_manager.remove_user_keyword(chat_id, keyword_to_delete):
             await update.message.reply_text(f"✅ Removed keyword: {keyword_to_delete}")
         else:
-            # Show current keywords to help user
             current = ', '.join(keywords)
             await update.message.reply_text(
                 f"❌ Keyword '{keyword_to_delete}' not found!\n\n"
@@ -447,3 +259,298 @@ class CommandHandlers:
             await update.message.reply_text(f"🚫 Your ignore keywords: {ignore_str}")
         else:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
+    
+    # ADMIN COMMANDS
+    async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auth_status command - ADMIN ONLY"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        user_monitor = context.bot_data.get('user_monitor', None)
+        if not user_monitor:
+            await update.message.reply_text("❌ User account monitoring is not enabled.")
+            return
+        
+        status = user_monitor.get_auth_status()
+        
+        if status == "disabled":
+            await update.message.reply_text("ℹ️ User account monitoring is disabled (no credentials configured).")
+        elif status == "not_initialized":
+            await update.message.reply_text("❌ User account monitoring failed to initialize.")
+        elif status == "waiting_for_code":
+            await update.message.reply_text("📱 **Waiting for SMS verification code**\n\nPlease send the code you received.", parse_mode='Markdown')
+        elif status == "waiting_for_2fa":
+            await update.message.reply_text("🔐 **Waiting for 2FA password**\n\nPlease send your two-factor authentication password.", parse_mode='Markdown')
+        elif status == "authenticated":
+            await update.message.reply_text("✅ **User account authenticated!**\n\nMonitoring is active and working.", parse_mode='Markdown')
+        else:
+            await update.message.reply_text("❓ Unknown status. Use /auth_restart to restart authentication.")
+
+    async def auth_restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auth_restart command - ADMIN ONLY"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        user_monitor = context.bot_data.get('user_monitor', None)
+        if not user_monitor:
+            await update.message.reply_text("❌ User account monitoring is not enabled.")
+            return
+        
+        try:
+            success = await user_monitor.restart_auth(chat_id)
+            if success:
+                await update.message.reply_text("🔄 **Authentication restarted**\n\nCheck your phone for the verification code.", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Failed to restart authentication.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error restarting authentication: {str(e)}")
+    
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin command with subcommands - ADMIN ONLY"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        if not context.args:
+            await update.message.reply_text(
+                "📋 **Admin Commands**\n\n"
+                "**System:**\n"
+                "• `/admin health` - System health check\n"
+                "• `/admin stats` - Database statistics\n"
+                "• `/admin errors` - Show recent errors\n\n"
+                "**Channel Management:**\n"
+                "• `/admin channels` - List all channels\n"
+                "• `/admin add_user_channel @channel` - Add user monitor channel\n"
+                "• `/admin remove_user_channel @channel` - Remove user channel\n"
+                "• `/admin export_config` - Update config.json\n",
+                parse_mode='Markdown'
+            )
+            return
+        
+        subcommand = context.args[0].lower()
+        
+        if subcommand == "health":
+            await self.admin_health_command(update, context)
+        elif subcommand == "stats":
+            await self.admin_stats_command(update, context)
+        elif subcommand == "errors":
+            await self.admin_errors_command(update, context)
+        elif subcommand == "channels":
+            await self.admin_channels_command(update, context)
+        elif subcommand == "add_user_channel":
+            await self.admin_add_user_channel_command(update, context)
+        elif subcommand == "remove_user_channel":
+            await self.admin_remove_user_channel_command(update, context)
+        elif subcommand == "export_config":
+            await self.admin_export_config_command(update, context)
+        else:
+            await update.message.reply_text(f"❓ Unknown admin command: {subcommand}")
+
+    async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin health command"""
+        try:
+            health_status = []
+            
+            # Test database
+            try:
+                await self.data_manager.get_all_users_with_keywords()
+                health_status.append("✅ Database: Connected")
+            except Exception as e:
+                health_status.append(f"❌ Database: Error - {str(e)[:50]}")
+            
+            # Check user monitor
+            user_monitor = context.bot_data.get('user_monitor', None)
+            if user_monitor:
+                auth_status = user_monitor.get_auth_status()
+                if auth_status == "authenticated":
+                    health_status.append("✅ User Monitor: Authenticated")
+                else:
+                    health_status.append(f"⚠️ User Monitor: {auth_status}")
+            else:
+                health_status.append("ℹ️ User Monitor: Not configured")
+            
+            message = "🏥 **System Health Check**\n\n"
+            message += "\n".join(health_status)
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Health check failed: {str(e)}")
+    
+    async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin stats command"""
+        try:
+            all_users = await self.data_manager.get_all_users_with_keywords()
+            total_users = len(all_users)
+            total_keywords = sum(len(keywords) for keywords in all_users.values())
+            
+            # Get channel counts
+            bot_channels = await self.data_manager.get_bot_monitored_channels_db()
+            user_channels = await self.data_manager.get_user_monitored_channels_db()
+            
+            message = (
+                f"📊 **Database Statistics**\n\n"
+                f"👥 Total Users: {total_users}\n"
+                f"🎯 Total Keywords: {total_keywords}\n"
+                f"📈 Avg Keywords/User: {total_keywords / total_users if total_users > 0 else 0:.1f}\n\n"
+                f"📺 Bot Channels: {len(bot_channels)}\n"
+                f"👤 User Channels: {len(user_channels)}\n"
+            )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
+    
+    async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin errors command"""
+        try:
+            from utils.error_monitor import get_error_collector
+            collector = get_error_collector()
+        except ImportError:
+            await update.message.reply_text("❌ Error monitoring not available.")
+            return
+        
+        if not collector:
+            await update.message.reply_text("❌ Error monitoring not initialized.")
+            return
+        
+        recent_errors = collector.get_recent_errors(24)
+        
+        if not recent_errors:
+            await update.message.reply_text("✅ **No errors in last 24 hours**\n\nBot is running smoothly!", parse_mode='Markdown')
+            return
+        
+        message = f"📋 **Recent Errors** (Last 24h)\n\n"
+        message += f"📊 Total: {len(recent_errors)} errors\n\n"
+        
+        for error in recent_errors[-5:]:  # Show last 5
+            timestamp = error['timestamp'].strftime("%H:%M:%S")
+            message += f"❌ {timestamp} - {error['level']}\n"
+            message += f"📍 {error['module']}.py:{error['lineno']}\n"
+            message += f"📝 {error['message'][:100]}\n\n"
+        
+        await update.message.reply_text(message, parse_mode='Markdown')
+    
+    async def admin_channels_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin channels command"""
+        try:
+            channels = await self.data_manager.get_all_monitored_channels_db()
+            
+            if not channels:
+                await update.message.reply_text("📭 **No channels configured**\n\nUse `/admin add_user_channel @channel` to add channels.")
+                return
+            
+            bot_channels = [ch['identifier'] for ch in channels if ch['type'] == 'bot']
+            user_channels = [ch['identifier'] for ch in channels if ch['type'] == 'user']
+            
+            message = "📺 **Monitored Channels**\n\n"
+            
+            if bot_channels:
+                message += f"**Bot Channels ({len(bot_channels)}):**\n"
+                for channel in bot_channels:
+                    message += f"• {channel}\n"
+                message += "\n"
+            
+            if user_channels:
+                message += f"**User Channels ({len(user_channels)}):**\n"
+                for channel in user_channels:
+                    message += f"• {channel}\n"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting channels: {str(e)}")
+    
+    async def admin_add_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin add_user_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: `/admin add_user_channel @channel`", parse_mode='Markdown')
+            return
+        
+        channel_identifier = context.args[1]
+        
+        # Validate channel format
+        if not (channel_identifier.startswith('@') or channel_identifier.startswith('-')):
+            await update.message.reply_text("❌ Channel must start with @ or be a numeric ID starting with -")
+            return
+        
+        try:
+            user_monitor = context.bot_data.get('user_monitor', None)
+            if not user_monitor:
+                await update.message.reply_text("❌ User account monitoring not available.")
+                return
+            
+            success, message = await user_monitor.add_channel(channel_identifier)
+            await update.message.reply_text(message)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
+    
+    async def admin_remove_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin remove_user_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text("Usage: `/admin remove_user_channel @channel`", parse_mode='Markdown')
+            return
+        
+        channel_identifier = context.args[1]
+        
+        try:
+            user_monitor = context.bot_data.get('user_monitor', None)
+            if not user_monitor:
+                await update.message.reply_text("❌ User account monitoring not available.")
+                return
+            
+            success, message = await user_monitor.remove_channel(channel_identifier)
+            await update.message.reply_text(message)
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error removing channel: {str(e)}")
+    
+    async def admin_export_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin export_config command"""
+        try:
+            user_monitor = context.bot_data.get('user_monitor', None)
+            if user_monitor:
+                await user_monitor._export_config()
+                await update.message.reply_text("✅ **Config exported**\n\nDatabase channels saved to config.json", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ User monitor not available for config export.")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error exporting config: {str(e)}")
+    
+    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle authentication messages"""
+        if not update.message or not update.message.text:
+            return
+        
+        # Only handle for admin user
+        if not self._is_authorized_admin(update, context):
+            return
+        
+        user_monitor = context.bot_data.get('user_monitor', None)
+        if not user_monitor or not user_monitor.is_waiting_for_auth():
+            return
+        
+        user_id = update.effective_user.id
+        message_text = update.message.text.strip()
+        
+        # Only handle likely auth codes/passwords
+        if message_text.isdigit() and 5 <= len(message_text) <= 6:
+            # SMS code
+            await user_monitor.handle_auth_message(user_id, message_text)
+        elif len(message_text) >= 8 and not message_text.isdigit():
+            # 2FA password  
+            await user_monitor.handle_auth_message(user_id, message_text)

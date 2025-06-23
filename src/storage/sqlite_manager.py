@@ -1,6 +1,6 @@
 """
 High-Performance SQLite Manager - Optimized for 10,000+ users
-Single file database perfect for easy migration
+Extended with channel management functionality
 """
 
 import aiosqlite
@@ -101,6 +101,18 @@ class SQLiteManager:
             )
         """)
         
+        # Monitored channels table
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS monitored_channels (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                identifier TEXT NOT NULL UNIQUE,
+                type TEXT NOT NULL,
+                status TEXT DEFAULT 'active',
+                added_at TEXT DEFAULT (datetime('now')),
+                last_validated TEXT
+            )
+        """)
+        
         # Performance indexes
         indexes = [
             "CREATE INDEX IF NOT EXISTS idx_user_keywords_user_id ON user_keywords(user_id)",
@@ -109,7 +121,9 @@ class SQLiteManager:
             "CREATE INDEX IF NOT EXISTS idx_message_forwards_user_id ON message_forwards(user_id)",
             "CREATE INDEX IF NOT EXISTS idx_message_forwards_dedup ON message_forwards(user_id, channel_id, message_id)",
             "CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active)",
-            "CREATE INDEX IF NOT EXISTS idx_message_forwards_forwarded_at ON message_forwards(forwarded_at)"
+            "CREATE INDEX IF NOT EXISTS idx_message_forwards_forwarded_at ON message_forwards(forwarded_at)",
+            "CREATE INDEX IF NOT EXISTS idx_monitored_channels_type ON monitored_channels(type)",
+            "CREATE INDEX IF NOT EXISTS idx_monitored_channels_status ON monitored_channels(status)"
         ]
         
         for index in indexes:
@@ -129,6 +143,73 @@ class SQLiteManager:
             await conn.close()
         logger.info("SQLite connections closed")
     
+    # Channel Management Methods
+    async def init_channels_table(self):
+        """Ensure channels table exists (called during user monitor init)"""
+        async with self._get_connection() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    identifier TEXT NOT NULL UNIQUE,
+                    type TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    added_at TEXT DEFAULT (datetime('now')),
+                    last_validated TEXT
+                )
+            """)
+            await conn.commit()
+    
+    async def add_channel_db(self, identifier: str, channel_type: str):
+        """Add channel to database"""
+        async with self._get_connection() as conn:
+            try:
+                await conn.execute(
+                    "INSERT INTO monitored_channels (identifier, type) VALUES (?, ?)",
+                    (identifier, channel_type)
+                )
+                await conn.commit()
+                return True
+            except aiosqlite.IntegrityError:
+                return False  # Channel already exists
+    
+    async def remove_channel_db(self, identifier: str, channel_type: str):
+        """Remove channel from database"""
+        async with self._get_connection() as conn:
+            cursor = await conn.execute(
+                "DELETE FROM monitored_channels WHERE identifier = ? AND type = ?",
+                (identifier, channel_type)
+            )
+            await conn.commit()
+            return cursor.rowcount > 0
+    
+    async def get_bot_monitored_channels_db(self):
+        """Get bot monitored channels from database"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT identifier FROM monitored_channels WHERE type = 'bot' AND status = 'active'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows]
+    
+    async def get_user_monitored_channels_db(self):
+        """Get user monitored channels from database"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT identifier FROM monitored_channels WHERE type = 'user' AND status = 'active'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows]
+    
+    async def get_all_monitored_channels_db(self):
+        """Get all monitored channels with their types"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT identifier, type FROM monitored_channels WHERE status = 'active'"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [{'identifier': row[0], 'type': row[1]} for row in rows]
+    
+    # Existing user management methods
     async def ensure_user_exists(self, user_id: int):
         """Ensure user exists in database"""
         async with self._get_connection() as conn:

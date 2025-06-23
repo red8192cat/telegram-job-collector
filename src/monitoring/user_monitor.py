@@ -1,6 +1,6 @@
 """
 SECURE User Account Monitor with Admin-Only Authentication
-FIXED: Event handler registration timing and debugging
+Production version with dynamic channel management
 """
 
 import asyncio
@@ -34,8 +34,6 @@ class UserAccountMonitor:
         self.waiting_for_code = False
         self.waiting_for_2fa = False
         self.expected_user_id = None
-        
-        # 🔥 FIX: Event handler registration flag
         self.event_handler_registered = False
         
         # SECURITY: Get authorized admin ID
@@ -73,9 +71,7 @@ class UserAccountMonitor:
     def is_authorized_admin(self, user_id: int):
         """Check if user is authorized admin"""
         if not self.authorized_admin_id:
-            # If no admin ID set, allow during initial setup only
-            return True  # We'll check authorization state in async methods
-        
+            return True  # Allow during initial setup
         return user_id == self.authorized_admin_id
     
     async def initialize(self):
@@ -97,20 +93,19 @@ class UserAccountMonitor:
                 self.expected_user_id = me.id
                 logger.info(f"Authorized as: {me.first_name} {me.last_name or ''} (ID: {me.id})")
                 
-                # Notify admin that monitoring is active
+                # Initialize database and load channels
+                await self._init_channels_database()
+                await self.update_monitored_entities()
+                await self._register_event_handler()
+                
+                # Notify admin
                 await self._notify_admin(
                     f"✅ **User Account Monitoring Active**\n\n"
                     f"👤 Authenticated as: {me.first_name} {me.last_name or ''}\n"
-                    f"📱 Phone: {self.auth_phone}\n"
-                    f"🎯 Ready to monitor channels!"
+                    f"📊 Monitoring {len(self.monitored_entities)} channels"
                 )
                 
-                await self.update_monitored_entities()
-                
-                # 🔥 FIX: Register event handler AFTER full authentication
-                await self._register_event_handler()
-                
-                logger.info(f"User monitor active for {len(self.monitored_entities)} additional channels")
+                logger.info(f"⚙️ SYSTEM: User monitor active for {len(self.monitored_entities)} channels")
                 return True
                 
         except Exception as e:
@@ -122,28 +117,33 @@ class UserAccountMonitor:
                 logger.error("Could not start authentication process")
             return False
     
+    async def _init_channels_database(self):
+        """Initialize channels database from config.json"""
+        await self.data_manager.init_channels_table()
+        
+        # Import from config.json if database is empty
+        existing_channels = await self.data_manager.get_user_monitored_channels_db()
+        if not existing_channels:
+            config_channels = self.config_manager.get_user_monitored_channels()
+            for channel in config_channels:
+                await self.data_manager.add_channel_db(channel, 'user')
+            logger.info(f"⚙️ SYSTEM: Imported {len(config_channels)} channels from config.json")
+    
     async def _register_event_handler(self):
         """Register event handler AFTER authentication is complete"""
         if self.event_handler_registered:
-            logger.info("🔥 EVENT DEBUG: Event handler already registered")
             return
         
         try:
-            logger.info("🔥 EVENT DEBUG: Registering message event handler...")
-            
             @self.client.on(events.NewMessage)
             async def handle_new_message(event):
-                logger.info(f"🔥 EVENT DEBUG: Received message event from chat {event.chat_id}")
                 await self.process_channel_message(event)
             
             self.event_handler_registered = True
-            logger.info("🔥 EVENT DEBUG: ✅ Message event handler registered successfully")
-            
-            # Test event handler registration
-            await self._notify_admin("🔥 **Debug**: Event handler registered and ready to receive messages")
+            logger.info("📨 EVENT: Message event handler registered successfully")
             
         except Exception as e:
-            logger.error(f"🔥 EVENT DEBUG: ❌ Failed to register event handler: {e}")
+            logger.error(f"Failed to register event handler: {e}")
             await self._notify_admin(f"❌ **Event Handler Error**: {str(e)}")
     
     async def _start_auth_process(self):
@@ -153,24 +153,20 @@ class UserAccountMonitor:
             self.auth_phone_hash = result.phone_code_hash
             self.waiting_for_code = True
             
-            logger.info(f"Authentication code sent to {self.auth_phone}")
+            logger.info(f"🔐 AUTH: Authentication code sent to {self.auth_phone}")
             
-            # Notify admin immediately
             await self._notify_admin(
                 f"🔐 **Authentication Required**\n\n"
                 f"📱 SMS code sent to: {self.auth_phone}\n"
                 f"📨 Please send the verification code to this chat\n\n"
-                f"Commands:\n"
-                f"• `/auth_status` - Check status\n"
-                f"• `/auth_restart` - Restart if needed\n\n"
-                f"⚠️ Only you can see and use these commands."
+                f"Commands: `/auth_status` `/auth_restart`"
             )
                     
         except PhoneNumberInvalidError:
-            logger.error(f"Invalid phone number: {self.auth_phone}")
+            logger.error(f"🔐 AUTH: Invalid phone number: {self.auth_phone}")
             await self._notify_admin(f"❌ **Invalid Phone Number**\n\n{self.auth_phone}")
         except Exception as e:
-            logger.error(f"Failed to start authentication: {e}")
+            logger.error(f"🔐 AUTH: Authentication error: {e}")
             await self._notify_admin(f"❌ **Authentication Error**\n\n{str(e)}")
     
     async def _notify_admin(self, message: str):
@@ -187,7 +183,6 @@ class UserAccountMonitor:
     
     async def handle_auth_message(self, user_id: int, message_text: str):
         """Handle authentication messages - ADMIN ONLY"""
-        # SECURITY: Only authorized admin can authenticate
         if not self.is_authorized_admin(user_id):
             return False
         
@@ -195,7 +190,7 @@ class UserAccountMonitor:
             if self.waiting_for_code:
                 code = message_text.strip()
                 if not code.isdigit() or len(code) < 4:
-                    await self._send_auth_message(user_id, "❌ Please send only the numeric verification code (e.g., 12345)")
+                    await self._send_auth_message(user_id, "❌ Please send only the numeric verification code")
                     return True
                 
                 try:
@@ -211,7 +206,7 @@ class UserAccountMonitor:
                         f"🎯 User account monitoring is now active!"
                     )
                     
-                    logger.info(f"User authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
+                    logger.info(f"🔐 AUTH: User authentication successful for {result.first_name} {result.last_name or ''}")
                     await self._complete_initialization()
                     return True
                     
@@ -241,16 +236,16 @@ class UserAccountMonitor:
                         f"🎯 User account monitoring is now active!"
                     )
                     
-                    logger.info(f"User 2FA authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
+                    logger.info(f"🔐 AUTH: User 2FA authentication successful")
                     await self._complete_initialization()
                     return True
                     
-                except Exception as e:
+                except Exception:
                     await self._send_auth_message(user_id, "❌ **Invalid 2FA Password**\n\nPlease try again:")
                     return True
             
         except Exception as e:
-            logger.error(f"Authentication error: {e}")
+            logger.error(f"🔐 AUTH: Authentication error: {e}")
             await self._send_auth_message(user_id, f"❌ **Authentication Error**\n\n{str(e)}")
             return True
         
@@ -259,20 +254,18 @@ class UserAccountMonitor:
     async def _complete_initialization(self):
         """Complete initialization after successful authentication"""
         try:
+            await self._init_channels_database()
             await self.update_monitored_entities()
-            
-            # 🔥 FIX: Register event handler AFTER authentication
             await self._register_event_handler()
             
-            # Notify about successful setup
             channel_count = len(self.monitored_entities)
             await self._notify_admin(
                 f"🎉 **Setup Complete!**\n\n"
-                f"📊 Monitoring {channel_count} additional channels\n"
-                f"🚀 Bot is now collecting jobs from user account!"
+                f"📊 Monitoring {channel_count} channels\n"
+                f"🚀 User account monitoring is active!"
             )
             
-            logger.info(f"✅ User monitor initialization completed - monitoring {channel_count} additional channels")
+            logger.info(f"⚙️ SYSTEM: User monitor initialization completed - monitoring {channel_count} channels")
             
         except Exception as e:
             logger.error(f"Failed to complete initialization: {e}")
@@ -322,15 +315,15 @@ class UserAccountMonitor:
         return True
     
     async def update_monitored_entities(self):
-        """Update the list of entities to monitor (USER channels only)"""
+        """Update the list of entities to monitor from database"""
         if not self.enabled or not await self.client.is_user_authorized():
             return
             
-        channels = self.config_manager.get_user_monitored_channels()
+        channels = await self.data_manager.get_user_monitored_channels_db()
         self.monitored_entities = {}
         
         if not channels:
-            logger.info("No user-monitored channels configured")
+            logger.info("⚙️ SYSTEM: No user-monitored channels in database")
             return
         
         for channel_identifier in channels:
@@ -340,19 +333,107 @@ class UserAccountMonitor:
                 elif channel_identifier.startswith('-'):
                     entity = await self.client.get_entity(int(channel_identifier))
                 else:
-                    try:
-                        entity = await self.client.get_entity(channel_identifier)
-                    except:
-                        entity = await self.client.get_entity(int(channel_identifier))
+                    entity = await self.client.get_entity(channel_identifier)
                 
                 self.monitored_entities[entity.id] = {
                     'entity': entity,
                     'identifier': channel_identifier
                 }
-                logger.info(f"User monitor added: {channel_identifier}")
+                logger.info(f"⚙️ SYSTEM: User monitor added: {channel_identifier}")
                 
             except Exception as e:
-                logger.error(f"Failed to get entity for {channel_identifier}: {e}")
+                logger.error(f"⚙️ SYSTEM: Failed to get entity for {channel_identifier}: {e}")
+    
+    async def add_channel(self, channel_identifier: str):
+        """Add new channel to monitoring"""
+        if not self.enabled or not await self.client.is_user_authorized():
+            return False, "User monitor not authenticated"
+        
+        try:
+            # Validate channel access
+            if channel_identifier.startswith('@'):
+                entity = await self.client.get_entity(channel_identifier)
+            elif channel_identifier.startswith('-'):
+                entity = await self.client.get_entity(int(channel_identifier))
+            else:
+                entity = await self.client.get_entity(channel_identifier)
+            
+            # Add to database
+            success = await self.data_manager.add_channel_db(channel_identifier, 'user')
+            if not success:
+                return False, "Channel already exists in database"
+            
+            # Add to monitored entities
+            self.monitored_entities[entity.id] = {
+                'entity': entity,
+                'identifier': channel_identifier
+            }
+            
+            # Update config.json
+            await self._export_config()
+            
+            logger.info(f"⚙️ SYSTEM: Added user channel: {channel_identifier}")
+            return True, f"✅ Now monitoring {channel_identifier}"
+            
+        except Exception as e:
+            logger.error(f"⚙️ SYSTEM: Failed to add channel {channel_identifier}: {e}")
+            return False, f"❌ Cannot access channel: {str(e)}"
+    
+    async def remove_channel(self, channel_identifier: str):
+        """Remove channel from monitoring"""
+        try:
+            # Remove from database
+            success = await self.data_manager.remove_channel_db(channel_identifier, 'user')
+            if not success:
+                return False, "Channel not found in database"
+            
+            # Remove from monitored entities
+            entity_id_to_remove = None
+            for entity_id, info in self.monitored_entities.items():
+                if info['identifier'] == channel_identifier:
+                    entity_id_to_remove = entity_id
+                    break
+            
+            if entity_id_to_remove:
+                del self.monitored_entities[entity_id_to_remove]
+            
+            # Update config.json
+            await self._export_config()
+            
+            logger.info(f"⚙️ SYSTEM: Removed user channel: {channel_identifier}")
+            return True, f"✅ Stopped monitoring {channel_identifier}"
+            
+        except Exception as e:
+            logger.error(f"⚙️ SYSTEM: Failed to remove channel {channel_identifier}: {e}")
+            return False, f"❌ Error removing channel: {str(e)}"
+    
+    async def get_monitored_channels(self):
+        """Get list of currently monitored channels"""
+        channels = await self.data_manager.get_user_monitored_channels_db()
+        return channels
+    
+    async def _export_config(self):
+        """Export current database state to config.json"""
+        try:
+            # Get channels from database
+            bot_channels = await self.data_manager.get_bot_monitored_channels_db()
+            user_channels = await self.data_manager.get_user_monitored_channels_db()
+            
+            # Create config structure
+            config = {
+                "channels": bot_channels,
+                "user_monitored_channels": user_channels,
+                "last_exported": datetime.now().isoformat()
+            }
+            
+            # Write to config.json
+            with open('config.json', 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            logger.info("⚙️ SYSTEM: Exported channels to config.json")
+            
+        except Exception as e:
+            logger.error(f"⚙️ SYSTEM: Failed to export config: {e}")
     
     async def process_channel_message(self, event):
         """Process new message from user-monitored channels"""
@@ -361,79 +442,51 @@ class UserAccountMonitor:
         
         chat_id = event.chat_id
         
-        # 🔥 FIX: Convert chat_id to entity_id for lookup
-        # Telethon chat IDs for supergroups are negative with -100 prefix
-        # But entity IDs are stored as positive numbers
+        # Convert chat_id to entity_id for lookup
         entity_id = None
-        if chat_id < 0:
-            # Convert -1002520287080 to 2520287080
-            if str(chat_id).startswith('-100'):
-                entity_id = int(str(chat_id)[4:])  # Remove -100 prefix
-            else:
-                entity_id = abs(chat_id)  # Simple absolute value for other negative IDs
+        if chat_id < 0 and str(chat_id).startswith('-100'):
+            entity_id = int(str(chat_id)[4:])  # Remove -100 prefix
         else:
-            entity_id = chat_id
+            entity_id = abs(chat_id) if chat_id < 0 else chat_id
         
-        # 🔥 DEBUG: Show conversion
-        logger.info(f"🔥 EVENT DEBUG: Event chat_id: {chat_id}")
-        logger.info(f"🔥 EVENT DEBUG: Converted entity_id: {entity_id}")
-        logger.info(f"🔥 EVENT DEBUG: Monitored entity IDs: {list(self.monitored_entities.keys())}")
-        
-        # Check both original chat_id and converted entity_id
+        # Check if monitored
         lookup_id = entity_id if entity_id in self.monitored_entities else chat_id
-        logger.info(f"🔥 EVENT DEBUG: Using lookup_id: {lookup_id}")
-        logger.info(f"🔥 EVENT DEBUG: Chat ID in monitored entities: {lookup_id in self.monitored_entities}")
-        
         if lookup_id not in self.monitored_entities:
-            logger.info(f"🔥 EVENT DEBUG: Message from unmonitored chat {chat_id} (entity {entity_id}), ignoring")
             return
         
         channel_info = self.monitored_entities[lookup_id]
-        logger.info(f"🔥 EVENT DEBUG: Processing user-monitored message from: {channel_info['identifier']}")
-        
         message_text = event.message.text
-        logger.info(f"🔥 EVENT DEBUG: Message text: '{message_text}'")
         
+        logger.info(f"📨 EVENT: Processing message from {channel_info['identifier']}")
+        
+        # Get users and process keywords
         all_users = await self.data_manager.get_all_users_with_keywords()
-        logger.info(f"🔥 EVENT DEBUG: Found {len(all_users)} users with keywords")
-        
         forwarded_count = 0
+        
         for user_chat_id, keywords in all_users.items():
             if user_chat_id <= 0:
                 continue
             
-            logger.info(f"🔥 EVENT DEBUG: Checking user {user_chat_id} with keywords: {keywords}")
-            
             if not await self.data_manager.check_user_limit(user_chat_id):
-                logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} exceeded limit")
                 continue
             
-            keyword_match = self.keyword_matcher.matches_user_keywords(message_text, keywords)
-            logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} keyword match: {keyword_match}")
-            
-            if not keyword_match:
+            if not self.keyword_matcher.matches_user_keywords(message_text, keywords):
                 continue
             
             ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
-            ignore_match = self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords)
-            logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} ignore match: {ignore_match}")
-            
-            if ignore_match:
+            if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
                 continue
             
             if self.bot_instance:
                 try:
-                    logger.info(f"🔥 EVENT DEBUG: Forwarding message to user {user_chat_id}")
                     await self.forward_message_via_bot(user_chat_id, event.message, chat_id)
                     forwarded_count += 1
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    logger.error(f"🔥 EVENT DEBUG: Failed to forward to user {user_chat_id}: {e}")
+                    logger.error(f"📤 FORWARD: Failed to forward to user {user_chat_id}: {e}")
         
         if forwarded_count > 0:
-            logger.info(f"🔥 EVENT DEBUG: User monitor forwarded message to {forwarded_count} users")
-        else:
-            logger.info(f"🔥 EVENT DEBUG: No users matched keywords for this message")
+            logger.info(f"📤 FORWARD: User monitor forwarded message to {forwarded_count} users")
     
     async def forward_message_via_bot(self, user_chat_id, message, source_chat_id):
         """Forward message to user via bot"""
@@ -441,24 +494,16 @@ class UserAccountMonitor:
             return
         
         try:
-            # 🔥 FIX: Use the same ID conversion logic as in process_channel_message
+            # Convert chat_id to entity_id for lookup
             entity_id = None
-            if source_chat_id < 0:
-                if str(source_chat_id).startswith('-100'):
-                    entity_id = int(str(source_chat_id)[4:])  # Remove -100 prefix
-                else:
-                    entity_id = abs(source_chat_id)
+            if source_chat_id < 0 and str(source_chat_id).startswith('-100'):
+                entity_id = int(str(source_chat_id)[4:])
             else:
-                entity_id = source_chat_id
+                entity_id = abs(source_chat_id) if source_chat_id < 0 else source_chat_id
             
-            # Try entity_id first, then source_chat_id
+            # Get channel name
             source_info = self.monitored_entities.get(entity_id) or self.monitored_entities.get(source_chat_id, {})
             source_name = source_info.get('identifier', f'Channel {source_chat_id}')
-            
-            # 🔥 DEBUG: Show what we found
-            logger.info(f"🔥 FORWARD DEBUG: source_chat_id={source_chat_id}, entity_id={entity_id}")
-            logger.info(f"🔥 FORWARD DEBUG: source_info={source_info}")
-            logger.info(f"🔥 FORWARD DEBUG: source_name={source_name}")
             
             formatted_message = f"📋 Job from {source_name}:\n\n{message.text}"
             
@@ -472,7 +517,7 @@ class UserAccountMonitor:
             )
             
         except Exception as e:
-            logger.error(f"Error forwarding via bot: {e}")
+            logger.error(f"📤 FORWARD: Error forwarding via bot: {e}")
             raise
     
     async def run_forever(self):
@@ -481,7 +526,7 @@ class UserAccountMonitor:
             logger.info("User monitor not running (disabled)")
             return
             
-        logger.info("🔥 EVENT DEBUG: User monitor starting to run forever...")
+        logger.info("⚙️ SYSTEM: User monitor client running...")
         try:
             await self.client.run_until_disconnected()
         except Exception as e:
@@ -492,4 +537,4 @@ class UserAccountMonitor:
         """Stop the client"""
         if self.client:
             await self.client.disconnect()
-            logger.info("User account monitor stopped")
+            logger.info("⚙️ SYSTEM: User account monitor stopped")
