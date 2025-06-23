@@ -1,5 +1,5 @@
 """
-SECURE User Account Monitor with Admin-Only Authentication
+User Account Monitor with Admin-Only Authentication
 Production version with dynamic channel management
 """
 
