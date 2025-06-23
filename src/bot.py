@@ -271,31 +271,25 @@ class JobCollectorBot:
             logger.warning(f"Could not send startup notification with backup info: {e}")
     
     async def setup_bot_menu(self):
-        """Set up the bot menu commands with multi-language support"""
+        """Set up bot menu commands - ALWAYS English but configurable via translations"""
         from telegram import BotCommand
         from utils.translations import get_text
         
-        # Get language statistics to determine primary language
-        try:
-            lang_stats = await self.data_manager.get_language_statistics()
-            # Use most common language or default to English
-            primary_lang = max(lang_stats.items(), key=lambda x: x[1])[0] if lang_stats else 'en'
-        except Exception:
-            primary_lang = 'en'
+        # FORCE English for bot menu (global standard) but use translations for flexibility
+        menu_language = "en"  # Always English for bot menu commands
         
-        # PUBLIC commands only - auth commands are hidden
         commands = [
-            BotCommand("start", get_text("menu_command_start", primary_lang)),
-            BotCommand("keywords", get_text("menu_command_keywords", primary_lang)),
-            BotCommand("ignore_keywords", get_text("menu_command_ignore", primary_lang)),
-            BotCommand("my_settings", get_text("menu_command_settings", primary_lang)),
-            BotCommand("purge_ignore", get_text("menu_command_purge", primary_lang)),
-            BotCommand("help", get_text("menu_command_help", primary_lang)),
+            BotCommand("start", get_text("menu_command_start", menu_language)),
+            BotCommand("keywords", get_text("menu_command_keywords", menu_language)),
+            BotCommand("ignore_keywords", get_text("menu_command_ignore", menu_language)),
+            BotCommand("my_settings", get_text("menu_command_settings", menu_language)),
+            BotCommand("purge_ignore", get_text("menu_command_purge", menu_language)),
+            BotCommand("help", get_text("menu_command_help", menu_language)),
         ]
         
         try:
             await self.app.bot.set_my_commands(commands)
-            logger.info(f"Bot menu commands set in {primary_lang}")
+            logger.info("Bot menu commands set (English - configurable via translations)")
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
         except Exception as e:
