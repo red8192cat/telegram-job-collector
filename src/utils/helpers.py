@@ -1,16 +1,14 @@
 """
-Helper utilities - Simple command pre-fill functionality
+Helper utilities - Help messages with command pre-fill
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 def create_main_menu():
-    """Create main menu keyboard with command pre-fill functionality"""
+    """Create simplified main menu keyboard"""
     keyboard = [
-        [InlineKeyboardButton("🎯 Set Keywords", 
-                            switch_inline_query_current_chat="/keywords ")],
-        [InlineKeyboardButton("🚫 Set Ignore Keywords", 
-                            switch_inline_query_current_chat="/ignore_keywords ")],
+        [InlineKeyboardButton("🎯 Set Keywords", callback_data="menu_keywords")],
+        [InlineKeyboardButton("🚫 Set Ignore Keywords", callback_data="menu_ignore")],
         [InlineKeyboardButton("⚙️ My Settings", callback_data="menu_show_settings")],
         [InlineKeyboardButton("❓ Help & Contact", callback_data="menu_help")]
     ]
@@ -19,6 +17,22 @@ def create_main_menu():
 def create_back_menu():
     """Create back button menu"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]])
+
+def create_keywords_help_menu():
+    """Create keywords help menu with pre-fill button"""
+    keyboard = [
+        [InlineKeyboardButton("📝 Fill Command", switch_inline_query_current_chat="/keywords ")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def create_ignore_help_menu():
+    """Create ignore keywords help menu with pre-fill button"""
+    keyboard = [
+        [InlineKeyboardButton("🚫 Fill Command", switch_inline_query_current_chat="/ignore_keywords ")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def is_private_chat(update: Update) -> bool:
     """Check if message is from private chat"""
@@ -69,7 +83,8 @@ def get_keywords_help():
         "• Phrases: support* engineer* (adjacent words)\n"
         "• AND: python+django (advanced - both required)\n\n"
         "💡 Logic: (ALL required) AND (at least one optional)\n"
-        "✨ No quotes needed - just use commas!"
+        "✨ No quotes needed - just use commas!\n\n"
+        "👇 Tap 'Fill Command' to get /keywords in your text field:"
     )
 
 def get_ignore_help():
@@ -83,7 +98,8 @@ def get_ignore_help():
         "• Wildcard: manage*, senior*, lead*\n"
         "• Phrases: team* lead*, project* manager*\n\n"
         "These will block job posts even if they match your keywords.\n\n"
-        "🗑️ Use /purge_ignore to clear all ignore keywords"
+        "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
+        "👇 Tap 'Fill Command' to get /ignore_keywords in your text field:"
     )
 
 def get_set_keywords_help():
