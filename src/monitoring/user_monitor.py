@@ -441,7 +441,7 @@ class UserAccountMonitor:
             return
         
         try:
-            # 🔥 FIX: Use the lookup_id logic for channel name too
+            # 🔥 FIX: Use the same ID conversion logic as in process_channel_message
             entity_id = None
             if source_chat_id < 0:
                 if str(source_chat_id).startswith('-100'):
@@ -451,10 +451,14 @@ class UserAccountMonitor:
             else:
                 entity_id = source_chat_id
             
-            # Try both IDs to find the channel info
-            lookup_id = entity_id if entity_id in self.monitored_entities else source_chat_id
-            source_info = self.monitored_entities.get(lookup_id, {})
+            # Try entity_id first, then source_chat_id
+            source_info = self.monitored_entities.get(entity_id) or self.monitored_entities.get(source_chat_id, {})
             source_name = source_info.get('identifier', f'Channel {source_chat_id}')
+            
+            # 🔥 DEBUG: Show what we found
+            logger.info(f"🔥 FORWARD DEBUG: source_chat_id={source_chat_id}, entity_id={entity_id}")
+            logger.info(f"🔥 FORWARD DEBUG: source_info={source_info}")
+            logger.info(f"🔥 FORWARD DEBUG: source_name={source_name}")
             
             formatted_message = f"📋 Job from {source_name}:\n\n{message.text}"
             
