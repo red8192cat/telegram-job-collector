@@ -38,6 +38,12 @@ class JobCollectorBot:
         self.token = token
         self.app = Application.builder().token(token).build()
         
+        # Get admin ID for notifications
+        self._admin_id = None
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        if admin_id_str and admin_id_str.isdigit():
+            self._admin_id = int(admin_id_str)
+        
         # Initialize managers
         self.config_manager = ConfigManager()
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
@@ -99,6 +105,9 @@ class JobCollectorBot:
         # FIXED: Initialize error monitoring INDEPENDENT of user monitor
         await self._initialize_error_monitoring()
         
+        # Validate bot channels on startup
+        await self._validate_bot_channels()
+        
         # Initialize user monitor if available (completely separate from admin/error monitoring)
         if self.user_monitor:
             # Store user_monitor in bot_data for admin commands that need it
@@ -146,6 +155,64 @@ class JobCollectorBot:
         
         # Set up bot menu
         await self.setup_bot_menu()
+    
+    async def _validate_bot_channels(self):
+        """Validate bot channels on startup"""
+        channels = self.config_manager.get_channels_to_monitor()
+        if not channels:
+            logger.info("⚙️ STARTUP: No bot channels configured")
+            return
+        
+        valid_channels = []
+        invalid_channels = []
+        
+        for channel_identifier in channels:
+            try:
+                # Try to get chat info
+                chat = await self.app.bot.get_chat(channel_identifier)
+                
+                # Check if bot is admin
+                is_admin = False
+                try:
+                    bot_member = await self.app.bot.get_chat_member(chat.id, self.app.bot.id)
+                    is_admin = bot_member.status in ['administrator', 'creator']
+                except Exception:
+                    is_admin = False
+                
+                if is_admin:
+                    valid_channels.append(channel_identifier)
+                    logger.info(f"✅ STARTUP: Bot validated (admin): {channel_identifier}")
+                else:
+                    invalid_channels.append(f"{channel_identifier} (not admin)")
+                    logger.warning(f"⚠️ STARTUP: Bot not admin in: {channel_identifier}")
+                
+            except Exception as e:
+                invalid_channels.append(f"{channel_identifier} (access error)")
+                logger.error(f"❌ STARTUP: Bot cannot access channel {channel_identifier}: {e}")
+        
+        # Log summary
+        if invalid_channels:
+            logger.warning(f"⚠️ STARTUP: Bot channel validation: {len(valid_channels)} valid, {len(invalid_channels)} issues")
+            
+            # Notify admin if error monitoring is available
+            if hasattr(self, '_admin_id') and self._admin_id:
+                try:
+                    await self.app.bot.send_message(
+                        chat_id=self._admin_id,
+                        text=(
+                            f"⚠️ **Bot Channel Validation Issues**\n\n"
+                            f"✅ Valid bot channels: {len(valid_channels)}\n"
+                            f"❌ Invalid bot channels: {len(invalid_channels)}\n\n"
+                            f"**Issues found:**\n" + 
+                            "\n".join([f"• {ch}" for ch in invalid_channels]) +
+                            f"\n\nBot must be admin in channels to monitor them."
+                        ),
+                        parse_mode='Markdown'
+                    )
+                except Exception as e:
+                    logger.error(f"Could not notify admin about channel issues: {e}")
+        else:
+            logger.info(f"✅ STARTUP: All {len(valid_channels)} bot channels validated successfully")
     
     async def _initialize_error_monitoring(self):
         """Initialize error monitoring - INDEPENDENT of user monitor"""

@@ -315,7 +315,7 @@ class UserAccountMonitor:
         return True
     
     async def update_monitored_entities(self):
-        """Update the list of entities to monitor from database"""
+        """Update the list of entities to monitor from database with validation"""
         if not self.enabled or not await self.client.is_user_authorized():
             return
             
@@ -326,6 +326,9 @@ class UserAccountMonitor:
             logger.info("⚙️ SYSTEM: No user-monitored channels in database")
             return
         
+        valid_channels = []
+        invalid_channels = []
+        
         for channel_identifier in channels:
             try:
                 if channel_identifier.startswith('@'):
@@ -335,14 +338,57 @@ class UserAccountMonitor:
                 else:
                     entity = await self.client.get_entity(channel_identifier)
                 
-                self.monitored_entities[entity.id] = {
-                    'entity': entity,
-                    'identifier': channel_identifier
-                }
-                logger.info(f"⚙️ SYSTEM: User monitor added: {channel_identifier}")
+                # Validate membership
+                is_member = await self._check_channel_membership(entity, channel_identifier)
+                
+                if is_member:
+                    self.monitored_entities[entity.id] = {
+                        'entity': entity,
+                        'identifier': channel_identifier
+                    }
+                    valid_channels.append(channel_identifier)
+                    logger.info(f"✅ STARTUP: User monitor validated: {channel_identifier}")
+                else:
+                    invalid_channels.append(channel_identifier)
+                    logger.warning(f"⚠️ STARTUP: User account not member of: {channel_identifier}")
                 
             except Exception as e:
-                logger.error(f"⚙️ SYSTEM: Failed to get entity for {channel_identifier}: {e}")
+                invalid_channels.append(channel_identifier)
+                logger.error(f"❌ STARTUP: Failed to validate user channel {channel_identifier}: {e}")
+        
+        # Notify admin about validation results
+        if invalid_channels:
+            await self._notify_admin(
+                f"⚠️ **Channel Validation Issues**\n\n"
+                f"✅ Valid channels: {len(valid_channels)}\n"
+                f"❌ Invalid channels: {len(invalid_channels)}\n\n"
+                f"**Issues found:**\n" + 
+                "\n".join([f"• {ch}" for ch in invalid_channels]) +
+                f"\n\nUse `/admin channels` to review"
+            )
+        else:
+            logger.info(f"⚙️ SYSTEM: All {len(valid_channels)} user channels validated successfully")
+    
+    async def _check_channel_membership(self, entity, channel_identifier):
+        """Check if user account is a member of the channel"""
+        try:
+            # Get current user
+            me = await self.client.get_me()
+            
+            # Try to get participants (this works if we're a member)
+            participants = await self.client.get_participants(entity, limit=1)
+            
+            # Check if we're in the participant list
+            async for participant in self.client.iter_participants(entity, limit=50):
+                if participant.id == me.id:
+                    return True
+            
+            # If we can't find ourselves, we're probably not a member
+            return False
+            
+        except Exception as e:
+            logger.error(f"⚙️ SYSTEM: Error checking membership for {channel_identifier}: {e}")
+            return False
     
     async def add_channel(self, channel_identifier: str):
         """Add new channel to monitoring with auto-join"""
