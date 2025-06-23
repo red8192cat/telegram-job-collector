@@ -1,14 +1,16 @@
 """
-Helper utilities - Help messages with command pre-fill
+Helper utilities - Direct command pre-fill from main menu
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 def create_main_menu():
-    """Create simplified main menu keyboard"""
+    """Create main menu with direct command pre-fill"""
     keyboard = [
-        [InlineKeyboardButton("🎯 Set Keywords", callback_data="menu_keywords")],
-        [InlineKeyboardButton("🚫 Set Ignore Keywords", callback_data="menu_ignore")],
+        [InlineKeyboardButton("🎯 Set Keywords", 
+                            switch_inline_query_current_chat="/keywords ")],
+        [InlineKeyboardButton("🚫 Set Ignore Keywords", 
+                            switch_inline_query_current_chat="/ignore_keywords ")],
         [InlineKeyboardButton("⚙️ My Settings", callback_data="menu_show_settings")],
         [InlineKeyboardButton("❓ Help & Contact", callback_data="menu_help")]
     ]
@@ -18,19 +20,19 @@ def create_back_menu():
     """Create back button menu"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]])
 
-def create_keywords_help_menu():
-    """Create keywords help menu with pre-fill button"""
+def create_keywords_help_keyboard():
+    """Create keyboard for keywords help with pre-fill button"""
     keyboard = [
-        [InlineKeyboardButton("📝 Fill Command", switch_inline_query_current_chat="/keywords ")],
-        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+        [InlineKeyboardButton("📝 Fill /keywords", 
+                            switch_inline_query_current_chat="/keywords ")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def create_ignore_help_menu():
-    """Create ignore keywords help menu with pre-fill button"""
+def create_ignore_keywords_help_keyboard():
+    """Create keyboard for ignore keywords help with pre-fill button"""
     keyboard = [
-        [InlineKeyboardButton("🚫 Fill Command", switch_inline_query_current_chat="/ignore_keywords ")],
-        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+        [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
+                            switch_inline_query_current_chat="/ignore_keywords ")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -83,8 +85,7 @@ def get_keywords_help():
         "• Phrases: support* engineer* (adjacent words)\n"
         "• AND: python+django (advanced - both required)\n\n"
         "💡 Logic: (ALL required) AND (at least one optional)\n"
-        "✨ No quotes needed - just use commas!\n\n"
-        "👇 Tap 'Fill Command' to get /keywords in your text field:"
+        "✨ No quotes needed - just use commas!"
     )
 
 def get_ignore_help():
@@ -98,8 +99,7 @@ def get_ignore_help():
         "• Wildcard: manage*, senior*, lead*\n"
         "• Phrases: team* lead*, project* manager*\n\n"
         "These will block job posts even if they match your keywords.\n\n"
-        "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
-        "👇 Tap 'Fill Command' to get /ignore_keywords in your text field:"
+        "🗑️ Use /purge_ignore to clear all ignore keywords"
     )
 
 def get_set_keywords_help():

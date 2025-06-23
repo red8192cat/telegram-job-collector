@@ -104,14 +104,8 @@ class CommandHandlers:
                 "👇 Tap the button below to fill the command:"
             )
             
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            keyboard = [
-                [InlineKeyboardButton("📝 Fill /keywords", 
-                                    switch_inline_query_current_chat="/keywords ")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(help_text, reply_markup=reply_markup)
+            from utils.helpers import create_keywords_help_keyboard
+            await update.message.reply_text(help_text, reply_markup=create_keywords_help_keyboard())
             return
         
         keywords_text = ' '.join(context.args)
@@ -163,14 +157,8 @@ class CommandHandlers:
                 "👇 Tap the button below to fill the command:"
             )
             
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-            keyboard = [
-                [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
-                                    switch_inline_query_current_chat="/ignore_keywords ")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(help_text, reply_markup=reply_markup)
+            from utils.helpers import create_ignore_keywords_help_keyboard
+            await update.message.reply_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
             return
         
         keywords_text = ' '.join(context.args)
