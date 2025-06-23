@@ -16,8 +16,6 @@ class CommandHandlers:
         self.data_manager = data_manager
     
     def register(self, app):
-        app.add_handler(CommandHandler("auth_status", self.auth_status_command))
-        app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
         """Register all command handlers"""
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("menu", self.menu_command))
@@ -31,6 +29,11 @@ class CommandHandlers:
         app.add_handler(CommandHandler("purge_ignore", self.purge_ignore_keywords_command))
         app.add_handler(CommandHandler("my_keywords", self.show_keywords_command))
         app.add_handler(CommandHandler("my_ignore", self.show_ignore_keywords_command))
+        
+        # Authentication commands
+        app.add_handler(CommandHandler("auth_status", self.auth_status_command))
+        app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
+        
         logger.info("Command handlers registered")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -269,3 +272,47 @@ class CommandHandlers:
             await update.message.reply_text(f"🚫 Your ignore keywords: {ignore_str}")
         else:
             await update.message.reply_text("You haven't set any ignore keywords yet!")
+    
+    # Authentication commands
+    async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auth_status command - Check user account authentication status"""
+        if not is_private_chat(update):
+            return
+        
+        user_monitor = getattr(context.bot_data, 'user_monitor', None)
+        if not user_monitor:
+            await update.message.reply_text("❌ User account monitoring is not enabled on this bot.")
+            return
+        
+        status = user_monitor.get_auth_status()
+        
+        if status == "disabled":
+            await update.message.reply_text("ℹ️ User account monitoring is disabled (no credentials configured).")
+        elif status == "not_initialized":
+            await update.message.reply_text("❌ User account monitoring failed to initialize.")
+        elif status == "waiting_for_code":
+            await update.message.reply_text("📱 Waiting for SMS verification code. Please send the code you received.")
+        elif status == "waiting_for_2fa":
+            await update.message.reply_text("🔐 Waiting for 2FA password. Please send your two-factor authentication password.")
+        elif status == "authenticated":
+            await update.message.reply_text("✅ User account is authenticated and monitoring is active!")
+        else:
+            await update.message.reply_text("❓ Unknown authentication status. Use /auth_restart to restart authentication.")
+
+    async def auth_restart_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /auth_restart command - Restart authentication process"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        user_monitor = getattr(context.bot_data, 'user_monitor', None)
+        if not user_monitor:
+            await update.message.reply_text("❌ User account monitoring is not enabled on this bot.")
+            return
+        
+        success = await user_monitor.restart_auth(chat_id)
+        if success:
+            await update.message.reply_text("🔄 Authentication process restarted. Check your phone for the verification code.")
+        else:
+            await update.message.reply_text("❌ You are not authorized to restart authentication for this bot.")
