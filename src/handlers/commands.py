@@ -52,6 +52,13 @@ class CommandHandlers:
         # Admin commands - FIXED VERSION
         app.add_handler(CommandHandler("admin", self.admin_command))
         
+        # Authentication handler for non-command messages (admin only)
+        from telegram.ext import MessageHandler, filters
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE,
+            self.handle_auth_message
+        ), group=10)  # Very low priority
+        
         logger.info("Command handlers registered")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -584,3 +591,27 @@ class CommandHandlers:
             
         except Exception as e:
             await update.message.reply_text(f"❌ Health check failed: {str(e)}")
+    
+    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle authentication messages in commands.py"""
+        if not update.message or not update.message.text:
+            return
+        
+        # Only handle for admin user
+        if not self._is_authorized_admin(update, context):
+            return
+        
+        user_monitor = getattr(context.bot_data, 'user_monitor', None)
+        if not user_monitor or not user_monitor.is_waiting_for_auth():
+            return
+        
+        user_id = update.effective_user.id
+        message_text = update.message.text.strip()
+        
+        # Only handle likely auth codes/passwords
+        if message_text.isdigit() and 5 <= len(message_text) <= 6:
+            # SMS code
+            await user_monitor.handle_auth_message(user_id, message_text)
+        elif len(message_text) >= 8 and not message_text.isdigit():
+            # 2FA password  
+            await user_monitor.handle_auth_message(user_id, message_text)
