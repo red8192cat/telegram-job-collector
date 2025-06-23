@@ -1,5 +1,5 @@
 """
-Callback Handlers - Help messages with command pre-fill functionality
+Callback Handlers - Only for settings and help (keywords buttons pre-fill directly)
 """
 
 import logging
@@ -7,15 +7,7 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import (
-    create_main_menu, 
-    create_back_menu, 
-    get_help_text, 
-    get_keywords_help, 
-    get_ignore_help,
-    create_keywords_help_menu,
-    create_ignore_help_menu
-)
+from utils.helpers import create_main_menu, create_back_menu, get_help_text
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +18,7 @@ class CallbackHandlers:
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("Callback query handler registered with pre-fill functionality")
+        logger.info("Callback query handler registered")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
@@ -37,21 +29,10 @@ class CallbackHandlers:
         try:
             await query.answer()
             
-            if query.data == "menu_keywords":
-                # Show help message + button to fill command
-                await query.edit_message_text(
-                    get_keywords_help(), 
-                    reply_markup=create_keywords_help_menu()
-                )
-                
-            elif query.data == "menu_ignore":
-                # Show help message + button to fill command
-                await query.edit_message_text(
-                    get_ignore_help(), 
-                    reply_markup=create_ignore_help_menu()
-                )
-                
-            elif query.data == "menu_show_settings":
+            # Note: menu_keywords and menu_ignore are now handled by switch_inline_query_current_chat
+            # directly in the main menu buttons, so no callbacks needed for those
+            
+            if query.data == "menu_show_settings":
                 chat_id = query.from_user.id
                 
                 # Get both keywords and ignore keywords
@@ -87,7 +68,7 @@ class CallbackHandlers:
                 await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
                 
             elif query.data == "menu_back":
-                # Back button now shows the /start message with menu
+                # Back button shows the /start message with menu
                 welcome_msg = (
                     "🤖 Welcome to JobFinderBot!\n\n"
                     "I help you collect job postings from some channels based on your keywords.\n\n"
