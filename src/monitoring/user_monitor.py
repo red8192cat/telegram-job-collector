@@ -361,16 +361,34 @@ class UserAccountMonitor:
         
         chat_id = event.chat_id
         
-        # 🔥 DEBUG: Show what we're comparing
-        logger.info(f"🔥 EVENT DEBUG: Event chat_id: {chat_id}")
-        logger.info(f"🔥 EVENT DEBUG: Monitored entity IDs: {list(self.monitored_entities.keys())}")
-        logger.info(f"🔥 EVENT DEBUG: Chat ID in monitored entities: {chat_id in self.monitored_entities}")
+        # 🔥 FIX: Convert chat_id to entity_id for lookup
+        # Telethon chat IDs for supergroups are negative with -100 prefix
+        # But entity IDs are stored as positive numbers
+        entity_id = None
+        if chat_id < 0:
+            # Convert -1002520287080 to 2520287080
+            if str(chat_id).startswith('-100'):
+                entity_id = int(str(chat_id)[4:])  # Remove -100 prefix
+            else:
+                entity_id = abs(chat_id)  # Simple absolute value for other negative IDs
+        else:
+            entity_id = chat_id
         
-        if chat_id not in self.monitored_entities:
-            logger.info(f"🔥 EVENT DEBUG: Message from unmonitored chat {chat_id}, ignoring")
+        # 🔥 DEBUG: Show conversion
+        logger.info(f"🔥 EVENT DEBUG: Event chat_id: {chat_id}")
+        logger.info(f"🔥 EVENT DEBUG: Converted entity_id: {entity_id}")
+        logger.info(f"🔥 EVENT DEBUG: Monitored entity IDs: {list(self.monitored_entities.keys())}")
+        
+        # Check both original chat_id and converted entity_id
+        lookup_id = entity_id if entity_id in self.monitored_entities else chat_id
+        logger.info(f"🔥 EVENT DEBUG: Using lookup_id: {lookup_id}")
+        logger.info(f"🔥 EVENT DEBUG: Chat ID in monitored entities: {lookup_id in self.monitored_entities}")
+        
+        if lookup_id not in self.monitored_entities:
+            logger.info(f"🔥 EVENT DEBUG: Message from unmonitored chat {chat_id} (entity {entity_id}), ignoring")
             return
         
-        channel_info = self.monitored_entities[chat_id]
+        channel_info = self.monitored_entities[lookup_id]
         logger.info(f"🔥 EVENT DEBUG: Processing user-monitored message from: {channel_info['identifier']}")
         
         message_text = event.message.text
