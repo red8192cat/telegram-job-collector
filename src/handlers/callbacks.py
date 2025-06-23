@@ -1,5 +1,5 @@
 """
-Callback Handlers - Only for settings and help
+Callback Handlers - Only for settings and help (keywords buttons pre-fill directly)
 """
 
 import logging
