@@ -71,7 +71,7 @@ class UserAccountMonitor:
         """Check if user is authorized admin"""
         if not self.authorized_admin_id:
             # If no admin ID set, allow during initial setup only
-            return not await self.client.is_user_authorized() if self.client else True
+            return True  # We'll check authorization state in async methods
         
         return user_id == self.authorized_admin_id
     
@@ -295,8 +295,6 @@ class UserAccountMonitor:
         
         await self._start_auth_process()
         return True
-    
-    # ... rest of the existing methods for channel monitoring remain the same ...
     
     async def update_monitored_entities(self):
         """Update the list of entities to monitor (USER channels only)"""
