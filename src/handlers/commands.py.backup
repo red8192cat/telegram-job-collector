@@ -44,9 +44,6 @@ class CommandHandlers:
         app.add_handler(CommandHandler("auth_status", self.auth_status_command))
         app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
         
-        # Admin commands
-        app.add_handler(CommandHandler("admin", self.admin_command))
-        
         logger.info("Command handlers registered")
     
     # ... [keep all existing command methods exactly the same] ...
@@ -131,77 +128,3 @@ class CommandHandlers:
             await update.message.reply_text("❌ Failed to restart authentication.")
     
     # [Add all other existing methods here - keeping them exactly the same]
-
-    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command with subcommands - ADMIN ONLY"""
-        if not is_private_chat(update):
-            return
-        
-        # Security check - only authorized admin
-        if not self._is_authorized_admin(update, context):
-            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
-            return
-        
-        if not context.args:
-            await update.message.reply_text(
-                "📋 **Admin Commands**\n\n"
-                "• `/admin errors` - Show recent errors\n"
-                "• `/admin stats` - Bot statistics (coming soon)\n",
-                parse_mode='Markdown'
-            )
-            return
-        
-        subcommand = context.args[0].lower()
-        
-        if subcommand == "errors":
-            await self.admin_errors_command(update, context)
-        else:
-            await update.message.reply_text(f"❓ Unknown admin command: {subcommand}")
-
-    async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin errors command - ADMIN ONLY"""
-        if not is_private_chat(update):
-            return
-        
-        # Security check - only authorized admin
-        if not self._is_authorized_admin(update, context):
-            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
-            return
-        
-        from utils.error_monitor import get_error_collector
-        
-        collector = get_error_collector()
-        if not collector:
-            await update.message.reply_text("❌ Error monitoring not initialized.")
-            return
-        
-        # Get recent errors
-        recent_errors = collector.get_recent_errors(24)
-        stats = collector.get_error_stats()
-        
-        if not recent_errors:
-            await update.message.reply_text("✅ **No errors in last 24 hours**\n\nBot is running smoothly!")
-            return
-        
-        # Format error list
-        message = f"📋 **Recent Errors** (Last 24h)\n\n"
-        message += f"📊 Total: {stats['total']} ({stats['critical']} critical)\n\n"
-        
-        # Show last 10 errors
-        for error in recent_errors[-10:]:
-            timestamp = error['timestamp'].strftime("%H:%M:%S")
-            level_emoji = "🚨" if error['level'] == 'CRITICAL' else "❌"
-            
-            message += f"{level_emoji} {timestamp} - {error['level']}\n"
-            message += f"📍 {error['module']}.py:{error['lineno']} in {error['funcName']}\n"
-            message += f"📝 {error['message'][:150]}\n\n"
-            
-            # Telegram message limit
-            if len(message) > 3500:
-                message += f"... and {len(recent_errors) - len(recent_errors[-10:])} more errors\n"
-                break
-        
-        if len(recent_errors) > 10:
-            message += f"Showing last 10 of {len(recent_errors)} errors"
-        
-        await update.message.reply_text(message, parse_mode='Markdown')

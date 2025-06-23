@@ -95,12 +95,6 @@ class JobCollectorBot:
         # Core bot functionality is ready
         logger.info("Core bot functionality ready")
         
-        # Initialize error monitoring
-        if self.user_monitor and hasattr(self.user_monitor, "authorized_admin_id") and self.user_monitor.authorized_admin_id:
-            from utils.error_monitor import setup_error_monitoring
-            setup_error_monitoring(self.app.bot, self.user_monitor.authorized_admin_id)
-            logger.info("Error monitoring initialized")
-        
         # Optionally start user monitor extension
         if self.user_monitor:
             self.user_monitor.bot_instance = self.app.bot
