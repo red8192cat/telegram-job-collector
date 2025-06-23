@@ -51,6 +51,12 @@ class CommandHandlers:
             self.handle_auth_message
         ), group=10)
         
+        # Handler for messages that start with @bot_name (from inline queries)
+        app.add_handler(MessageHandler(
+            filters.TEXT & filters.ChatType.PRIVATE,
+            self.handle_bot_mention_message
+        ), group=20)
+        
         logger.info("Enhanced command handlers registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -263,6 +269,44 @@ class CommandHandlers:
                     await update.message.delete()
                 except Exception:
                     pass  # Ignore deletion errors
+    
+    async def handle_bot_mention_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle messages that start with @bot_name from inline queries"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        message_text = update.message.text
+        if not message_text:
+            return
+        
+        # Check if message starts with @bot_name and extract the command
+        bot_username = context.bot.username
+        if message_text.startswith(f"@{bot_username}"):
+            # Remove @bot_name and any extra spaces
+            clean_text = message_text.replace(f"@{bot_username}", "").strip()
+            
+            # Check if it's a command we handle
+            if clean_text.startswith("/keywords"):
+                # Extract arguments
+                args_text = clean_text.replace("/keywords", "").strip()
+                if args_text:
+                    # Create a fake context with args
+                    context.args = args_text.split()
+                    await self.set_keywords_command(update, context)
+                else:
+                    # No args, show help
+                    context.args = []
+                    await self.set_keywords_command(update, context)
+                    
+            elif clean_text.startswith("/ignore_keywords"):
+                # Extract arguments  
+                args_text = clean_text.replace("/ignore_keywords", "").strip()
+                if args_text:
+                    context.args = args_text.split()
+                    await self.set_ignore_keywords_command(update, context)
+                else:
+                    context.args = []
+                    await self.set_ignore_keywords_command(update, context)
     
     # ADMIN COMMANDS
     async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
