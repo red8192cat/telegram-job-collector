@@ -277,7 +277,6 @@ class JobCollectorBot:
         # PUBLIC commands only - auth commands are hidden
         commands = [
             BotCommand("start", "🚀 Start the bot and see welcome message"),
-            BotCommand("menu", "📋 Show interactive menu"),
             BotCommand("keywords", "🎯 Set your search keywords"),
             BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
             BotCommand("my_settings", "⚙️ Show your current settings"),
