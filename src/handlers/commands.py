@@ -166,14 +166,26 @@ class CommandHandlers:
         
         logger.info("🔥 AUTH DEBUG: /auth_status command called")
         
+        # 🔥 DEBUG: Check what's actually in bot_data
+        bot_data_keys = list(context.bot_data.keys()) if context.bot_data else []
+        logger.info(f"🔥 AUTH DEBUG: bot_data keys: {bot_data_keys}")
+        logger.info(f"🔥 AUTH DEBUG: bot_data contents: {context.bot_data}")
+        
         user_monitor = getattr(context.bot_data, 'user_monitor', None)
         logger.info(f"🔥 AUTH DEBUG: User monitor found in bot_data: {user_monitor is not None}")
         
-        if not user_monitor:
-            await update.message.reply_text("❌ User account monitoring is not enabled.")
+        # 🔥 DEBUG: Try alternative ways to access user monitor
+        user_monitor_alt = context.bot_data.get('user_monitor', None)
+        logger.info(f"🔥 AUTH DEBUG: User monitor via .get(): {user_monitor_alt is not None}")
+        
+        if not user_monitor and not user_monitor_alt:
+            await update.message.reply_text("❌ User account monitoring is not enabled.\n\n🔥 DEBUG: User monitor not found in bot_data")
             return
         
-        status = user_monitor.get_auth_status()
+        # Use whichever method found the user monitor
+        monitor = user_monitor or user_monitor_alt
+        
+        status = monitor.get_auth_status()
         logger.info(f"🔥 AUTH DEBUG: Auth status: {status}")
         
         if status == "disabled":
