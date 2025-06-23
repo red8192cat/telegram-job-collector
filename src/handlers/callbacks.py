@@ -18,18 +18,16 @@ class CallbackHandlers:
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("CALLBACK HANDLER REGISTERED SUCCESSFULLY")
-        print("CALLBACK HANDLER REGISTERED!")  # Extra debug
+        logger.info("Callback query handler registered")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
-        logger.info(f"CALLBACK RECEIVED: {update.callback_query.data if update.callback_query else 'None'}")
-        
         query = update.callback_query
         if not query:
-            logger.warning("No callback query found")
             return
             
+        logger.debug(f"Callback received: {query.data} from user {query.from_user.id}")
+        
         try:
             await query.answer()
             
@@ -70,22 +68,14 @@ class CallbackHandlers:
                 
                 await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
                 
-            elif query.data == "test_button":
-                # Test button to verify callbacks work
-                logger.info(f"TEST BUTTON PRESSED by user {query.from_user.id}")
-                await query.edit_message_text(
-                    "🧪 Test button works!\n\nCallbacks are functioning properly.",
-                    reply_markup=create_back_menu()
-                )
-                
             elif query.data == "clear_ignore_keywords":
                 # Handle clear ignore keywords action
-                logger.info(f"Clear ignore keywords button pressed by user {query.from_user.id}")
+                logger.debug(f"Clear ignore keywords requested by user {query.from_user.id}")
                 chat_id = query.from_user.id
                 
                 try:
                     result = await self.data_manager.purge_user_ignore_keywords(chat_id)
-                    logger.info(f"Purge result: {result}")
+                    logger.debug(f"Purge ignore keywords result: {result}")
                     
                     if result:
                         success_message = (

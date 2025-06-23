@@ -33,7 +33,6 @@ def create_ignore_keywords_help_keyboard():
         [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
                             switch_inline_query_current_chat="/ignore_keywords ")],
         [InlineKeyboardButton("🗑️ Clear Ignore Keywords", callback_data="clear_ignore_keywords")],
-        [InlineKeyboardButton("🧪 Test Button", callback_data="test_button")],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
