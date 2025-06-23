@@ -1,8 +1,10 @@
 """
 Command Handlers - All bot command processing including admin commands
+FIXED VERSION - Resolves admin command issues
 """
 
 import logging
+import os
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
@@ -14,15 +16,19 @@ logger = logging.getLogger(__name__)
 class CommandHandlers:
     def __init__(self, data_manager: SQLiteManager):
         self.data_manager = data_manager
+        # Cache admin ID for better performance
+        self._admin_id = None
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        if admin_id_str and admin_id_str.isdigit():
+            self._admin_id = int(admin_id_str)
     
     def _is_authorized_admin(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Check if user is authorized admin"""
-        user_monitor = getattr(context.bot_data, 'user_monitor', None)
-        if not user_monitor:
+        """Check if user is authorized admin - IMPROVED VERSION"""
+        if not self._admin_id:
             return False
         
         user_id = update.effective_user.id
-        return user_monitor.is_authorized_admin(user_id)
+        return user_id == self._admin_id
     
     def register(self, app):
         """Register all command handlers"""
@@ -43,7 +49,7 @@ class CommandHandlers:
         app.add_handler(CommandHandler("auth_status", self.auth_status_command))
         app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
         
-        # Admin commands
+        # Admin commands - FIXED VERSION
         app.add_handler(CommandHandler("admin", self.admin_command))
         
         logger.info("Command handlers registered")
@@ -342,7 +348,7 @@ class CommandHandlers:
         except Exception as e:
             await update.message.reply_text(f"❌ Error restarting authentication: {str(e)}")
     
-    # ADMIN COMMANDS
+    # ADMIN COMMANDS - FIXED VERSION
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin command with subcommands - ADMIN ONLY"""
         if not is_private_chat(update) or not update.message:
@@ -357,7 +363,9 @@ class CommandHandlers:
             await update.message.reply_text(
                 "📋 **Admin Commands**\n\n"
                 "• `/admin errors` - Show recent errors\n"
-                "• `/admin stats` - Bot statistics (coming soon)\n",
+                "• `/admin stats` - Database statistics\n"
+                "• `/admin users` - User count and activity\n"
+                "• `/admin health` - System health check\n",
                 parse_mode='Markdown'
             )
             return
@@ -366,11 +374,17 @@ class CommandHandlers:
         
         if subcommand == "errors":
             await self.admin_errors_command(update, context)
+        elif subcommand == "stats":
+            await self.admin_stats_command(update, context)
+        elif subcommand == "users":
+            await self.admin_users_command(update, context)
+        elif subcommand == "health":
+            await self.admin_health_command(update, context)
         else:
             await update.message.reply_text(f"❓ Unknown admin command: {subcommand}")
 
     async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin errors command - ADMIN ONLY"""
+        """Handle /admin errors command - ADMIN ONLY - FIXED VERSION"""
         if not is_private_chat(update) or not update.message:
             return
         
@@ -380,9 +394,14 @@ class CommandHandlers:
             return
         
         try:
-            from utils.error_monitor import get_error_collector
+            # FIXED: Import here to avoid circular dependencies
+            try:
+                from utils.error_monitor import get_error_collector
+                collector = get_error_collector()
+            except ImportError:
+                await update.message.reply_text("❌ Error monitoring not available.")
+                return
             
-            collector = get_error_collector()
             if not collector:
                 await update.message.reply_text("❌ Error monitoring not initialized.")
                 return
@@ -420,3 +439,148 @@ class CommandHandlers:
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error retrieving error logs: {str(e)}")
+    
+    async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin stats command - NEW"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        try:
+            # Get database statistics
+            all_users = await self.data_manager.get_all_users_with_keywords()
+            total_users = len(all_users)
+            total_keywords = sum(len(keywords) for keywords in all_users.values())
+            
+            # Calculate average keywords per user
+            avg_keywords = total_keywords / total_users if total_users > 0 else 0
+            
+            # Get database file size
+            import os
+            db_size = 0
+            if os.path.exists(self.data_manager.db_path):
+                db_size = os.path.getsize(self.data_manager.db_path) / (1024 * 1024)  # MB
+            
+            message = (
+                f"📊 **Database Statistics**\n\n"
+                f"👥 Total Users: {total_users}\n"
+                f"🎯 Total Keywords: {total_keywords}\n"
+                f"📈 Avg Keywords/User: {avg_keywords:.1f}\n"
+                f"💾 Database Size: {db_size:.1f} MB\n"
+                f"🗂️ Connection Pool: {self.data_manager._pool_size} connections\n"
+            )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
+    
+    async def admin_users_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin users command - NEW"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        try:
+            all_users = await self.data_manager.get_all_users_with_keywords()
+            
+            if not all_users:
+                await update.message.reply_text("📭 **No users found**\n\nNo users have set up keywords yet.")
+                return
+            
+            message = f"👥 **User Overview**\n\n"
+            message += f"Total users with keywords: {len(all_users)}\n\n"
+            
+            # Show sample of users (first 10)
+            sample_users = list(all_users.items())[:10]
+            
+            for user_id, keywords in sample_users:
+                keyword_count = len(keywords)
+                # Show first few keywords
+                sample_keywords = keywords[:3]
+                keyword_preview = ', '.join(sample_keywords)
+                if len(keywords) > 3:
+                    keyword_preview += f"... (+{len(keywords) - 3} more)"
+                
+                message += f"• User {user_id}: {keyword_count} keywords\n"
+                message += f"  Keywords: {keyword_preview}\n\n"
+                
+                if len(message) > 3000:  # Telegram limit
+                    break
+            
+            if len(all_users) > 10:
+                message += f"... and {len(all_users) - 10} more users"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error getting user info: {str(e)}")
+    
+    async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin health command - NEW"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        if not self._is_authorized_admin(update, context):
+            await update.message.reply_text("❓ Unknown command. Use /help to see available commands.")
+            return
+        
+        try:
+            # Test database connectivity
+            health_status = []
+            
+            # 1. Database connectivity
+            try:
+                all_users = await self.data_manager.get_all_users_with_keywords()
+                health_status.append("✅ Database: Connected")
+            except Exception as e:
+                health_status.append(f"❌ Database: Error - {str(e)[:50]}")
+            
+            # 2. Bot functionality
+            user_monitor = getattr(context.bot_data, 'user_monitor', None)
+            if user_monitor:
+                auth_status = user_monitor.get_auth_status()
+                if auth_status == "authenticated":
+                    health_status.append("✅ User Monitor: Authenticated")
+                elif auth_status == "disabled":
+                    health_status.append("ℹ️ User Monitor: Disabled")
+                else:
+                    health_status.append(f"⚠️ User Monitor: {auth_status}")
+            else:
+                health_status.append("ℹ️ User Monitor: Not configured")
+            
+            # 3. Error monitoring
+            try:
+                from utils.error_monitor import get_error_collector
+                collector = get_error_collector()
+                if collector:
+                    recent_errors = collector.get_recent_errors(24)
+                    if len(recent_errors) == 0:
+                        health_status.append("✅ Error Monitor: No recent errors")
+                    else:
+                        health_status.append(f"⚠️ Error Monitor: {len(recent_errors)} errors in 24h")
+                else:
+                    health_status.append("⚠️ Error Monitor: Not initialized")
+            except ImportError:
+                health_status.append("❌ Error Monitor: Not available")
+            
+            # 4. File system
+            import os
+            if os.path.exists(self.data_manager.db_path):
+                health_status.append("✅ Database File: Exists")
+            else:
+                health_status.append("❌ Database File: Missing")
+            
+            message = "🏥 **System Health Check**\n\n"
+            message += "\n".join(health_status)
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Health check failed: {str(e)}")

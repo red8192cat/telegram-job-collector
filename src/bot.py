@@ -2,6 +2,7 @@
 """
 Enhanced Telegram Job Collector Bot - Main Entry Point with OPTIONAL User Account Monitoring
 The bot works perfectly without user account - it's just an optional extension!
+FIXED: Error monitoring and admin functionality independent of user monitor
 """
 
 import asyncio
@@ -95,20 +96,16 @@ class JobCollectorBot:
         # Core bot functionality is ready
         logger.info("Core bot functionality ready")
         
-        # Initialize error monitoring and store user_monitor in bot_data FIRST
-        if self.user_monitor and hasattr(self.user_monitor, "authorized_admin_id") and self.user_monitor.authorized_admin_id:
-            from utils.error_monitor import setup_error_monitoring
-            setup_error_monitoring(self.app.bot, self.user_monitor.authorized_admin_id)
-            logger.info("Error monitoring initialized")
-            
-            # CRITICAL: Store user_monitor in bot_data BEFORE authentication
-            # This allows admin commands to work even during authentication
+        # FIXED: Initialize error monitoring INDEPENDENT of user monitor
+        await self._initialize_error_monitoring()
+        
+        # Initialize user monitor if available (completely separate from admin/error monitoring)
+        if self.user_monitor:
+            # Store user_monitor in bot_data for admin commands that need it
             self.user_monitor.bot_instance = self.app.bot
             self.app.bot_data["user_monitor"] = self.user_monitor
-            logger.info("User monitor stored in bot_data for admin commands")
-        
-        # Optionally start user monitor extension
-        if self.user_monitor:
+            logger.info("User monitor stored in bot_data")
+            
             try:
                 success = await self.user_monitor.initialize()
                 if success:
@@ -117,12 +114,10 @@ class JobCollectorBot:
                     logger.info("✅ User monitor extension started successfully")
                 else:
                     logger.warning("❌ User monitor extension needs authentication")
-                    # DON'T set self.user_monitor = None - keep it for admin commands
                     
             except Exception as e:
                 logger.error(f"❌ User monitor extension error: {e}")
                 logger.info("Continuing with core bot functionality only")
-                # DON'T set self.user_monitor = None - keep it for admin commands
         
         # Start config reload task
         async def reload_task():
@@ -151,6 +146,36 @@ class JobCollectorBot:
         
         # Set up bot menu
         await self.setup_bot_menu()
+    
+    async def _initialize_error_monitoring(self):
+        """Initialize error monitoring - INDEPENDENT of user monitor"""
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        
+        if not admin_id_str or not admin_id_str.isdigit():
+            logger.info("No admin ID configured - error monitoring disabled")
+            return
+        
+        admin_id = int(admin_id_str)
+        
+        try:
+            from utils.error_monitor import setup_error_monitoring
+            setup_error_monitoring(self.app.bot, admin_id)
+            logger.info(f"✅ Error monitoring initialized for admin ID: {admin_id}")
+            
+            # Send initial notification to admin
+            try:
+                await self.app.bot.send_message(
+                    chat_id=admin_id,
+                    text="🤖 **Bot Started Successfully**\n\n✅ Error monitoring active\n📊 Admin commands available",
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.warning(f"Could not send startup notification to admin: {e}")
+                
+        except ImportError as e:
+            logger.warning(f"Error monitoring not available: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize error monitoring: {e}")
     
     async def setup_bot_menu(self):
         """Set up the bot menu commands - AUTH COMMANDS HIDDEN FROM PUBLIC"""
@@ -214,6 +239,15 @@ def main():
         # Run as webhook bot
         logger.info("Starting Job Collector Bot...")
         logger.info("✅ Core functionality: Bot monitoring enabled")
+        
+        # Log admin status
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        if admin_id_str and admin_id_str.isdigit():
+            logger.info("✅ Admin functionality: Enabled")
+        else:
+            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+        
+        # Log user monitor status  
         if bot.user_monitor:
             logger.info("✅ Extended functionality: User account monitoring enabled")
         else:
