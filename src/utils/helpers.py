@@ -1,5 +1,5 @@
 """
-Helper utilities - Simplified menu and help system with merged /start
+Helper utilities - Enhanced with command pre-fill functionality
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -17,6 +17,32 @@ def create_main_menu():
 def create_back_menu():
     """Create back button menu"""
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]])
+
+def create_keywords_menu_with_prefill():
+    """Create keywords help menu with pre-fill buttons"""
+    keyboard = [
+        [InlineKeyboardButton("📝 Try Basic Keywords", 
+                            switch_inline_query_current_chat="/keywords python, remote, developer")],
+        [InlineKeyboardButton("🎯 Try Advanced Keywords", 
+                            switch_inline_query_current_chat="/keywords [remote*], python, develop*")],
+        [InlineKeyboardButton("💼 Try Job-Specific", 
+                            switch_inline_query_current_chat="/keywords [remote*], react, frontend")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def create_ignore_menu_with_prefill():
+    """Create ignore keywords help menu with pre-fill buttons"""
+    keyboard = [
+        [InlineKeyboardButton("🚫 Try Common Blocks", 
+                            switch_inline_query_current_chat="/ignore_keywords manager, senior, lead")],
+        [InlineKeyboardButton("💼 Try Tech Blocks", 
+                            switch_inline_query_current_chat="/ignore_keywords java*, php*, .net*")],
+        [InlineKeyboardButton("🏢 Try Role Blocks", 
+                            switch_inline_query_current_chat="/ignore_keywords director*, vp*, chief*")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def is_private_chat(update: Update) -> bool:
     """Check if message is from private chat"""
@@ -57,8 +83,7 @@ def get_keywords_help():
     """Get keywords help text for menu"""
     return (
         "🎯 Set Keywords\n\n"
-        "Use commas to separate keywords:\n"
-        "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+        "Use commas to separate keywords:\n\n"
         "Types:\n"
         "• Required: [remote*] (MUST be in every message)\n"
         "• Required OR: [remote*|online*] (either must be present)\n"
@@ -67,35 +92,38 @@ def get_keywords_help():
         "• Phrases: support* engineer* (adjacent words)\n"
         "• AND: python+django (advanced - both required)\n\n"
         "💡 Logic: (ALL required) AND (at least one optional)\n"
-        "✨ No quotes needed - just use commas!"
+        "✨ No quotes needed - just use commas!\n\n"
+        "👇 Tap a button below to try examples:"
     )
 
 def get_ignore_help():
     """Get ignore keywords help text for menu"""
     return (
         "🚫 Set Ignore Keywords\n\n"
-        "Use commas to separate ignore keywords:\n"
-        "/ignore_keywords javascript*, manage*, senior*\n\n"
+        "Use commas to separate ignore keywords:\n\n"
         "Same rules as regular keywords:\n"
         "• Exact: java, php, manager\n"
         "• Wildcard: manage*, senior*, lead*\n"
         "• Phrases: team* lead*, project* manager*\n\n"
         "These will block job posts even if they match your keywords.\n\n"
-        "🗑️ Use /purge_ignore to clear all ignore keywords"
+        "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
+        "👇 Tap a button below to try examples:"
     )
 
 def get_set_keywords_help():
     """Get set keywords help text for command"""
     return (
-        "Please provide keywords separated by commas:\n"
-        "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+        "Please provide keywords separated by commas:\n\n"
+        "💡 **Quick Start Examples** (tap to use):\n"
+        "`/keywords python, remote, developer`\n"
+        "`/keywords [remote*], react, frontend`\n"
+        "`/keywords java, backend, api`\n\n"
         "• Use commas to separate keywords\n"
         "• Use [brackets] for REQUIRED keywords\n"
         "• Use asterisk for wildcards (develop* = developer, development)\n"
         "• Use spaces for phrases (support* engineer*)\n"
         "• No quotes needed!\n\n"
-        "Examples:\n"
-        "• /keywords java, python, develop*\n"
+        "Advanced Examples:\n"
         "• /keywords [remote*], senior* develop*, react\n"
         "• /keywords support* engineer*, linux*, python"
     )
