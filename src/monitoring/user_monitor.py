@@ -441,8 +441,20 @@ class UserAccountMonitor:
             return
         
         try:
-            source_info = self.monitored_entities.get(source_chat_id, {})
-            source_name = source_info.get('identifier', 'Unknown Channel')
+            # 🔥 FIX: Use the lookup_id logic for channel name too
+            entity_id = None
+            if source_chat_id < 0:
+                if str(source_chat_id).startswith('-100'):
+                    entity_id = int(str(source_chat_id)[4:])  # Remove -100 prefix
+                else:
+                    entity_id = abs(source_chat_id)
+            else:
+                entity_id = source_chat_id
+            
+            # Try both IDs to find the channel info
+            lookup_id = entity_id if entity_id in self.monitored_entities else source_chat_id
+            source_info = self.monitored_entities.get(lookup_id, {})
+            source_name = source_info.get('identifier', f'Channel {source_chat_id}')
             
             formatted_message = f"📋 Job from {source_name}:\n\n{message.text}"
             
