@@ -29,8 +29,44 @@ class CallbackHandlers:
         try:
             await query.answer()
             
-            # Note: menu_keywords and menu_ignore are now handled by switch_inline_query_current_chat
-            # directly in the main menu buttons, so no callbacks needed for those
+            if query.data == "menu_keywords":
+                # Send same instruction message as bot menu command
+                help_text = (
+                    "🎯 Set Keywords\n\n"
+                    "Use commas to separate keywords:\n"
+                    "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+                    "Types:\n"
+                    "• Required: [remote*] (MUST be in every message)\n"
+                    "• Required OR: [remote*|online*] (either must be present)\n"
+                    "• Exact: python, java, linux\n"
+                    "• Wildcard: develop*, engineer* (matches variations)\n"
+                    "• Phrases: support* engineer* (adjacent words)\n"
+                    "• AND: python+django (advanced - both required)\n\n"
+                    "💡 Logic: (ALL required) AND (at least one optional)\n"
+                    "✨ No quotes needed - just use commas!\n\n"
+                    "👇 Tap the button below to fill the command:"
+                )
+                
+                from utils.helpers import create_keywords_help_keyboard
+                await query.edit_message_text(help_text, reply_markup=create_keywords_help_keyboard())
+                
+            elif query.data == "menu_ignore":
+                # Send same instruction message as bot menu command
+                help_text = (
+                    "🚫 Set Ignore Keywords\n\n"
+                    "Use commas to separate ignore keywords:\n"
+                    "/ignore_keywords javascript*, manage*, senior*\n\n"
+                    "Same rules as regular keywords:\n"
+                    "• Exact: java, php, manager\n"
+                    "• Wildcard: manage*, senior*, lead*\n"
+                    "• Phrases: team* lead*, project* manager*\n\n"
+                    "These will block job posts even if they match your keywords.\n\n"
+                    "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
+                    "👇 Tap the button below to fill the command:"
+                )
+                
+                from utils.helpers import create_ignore_keywords_help_keyboard
+                await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
             
             if query.data == "menu_show_settings":
                 chat_id = query.from_user.id
