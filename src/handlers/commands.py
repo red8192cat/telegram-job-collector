@@ -87,7 +87,31 @@ class CommandHandlers:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text(get_set_keywords_help())
+            # Create help message with pre-fill button
+            help_text = (
+                "🎯 Set Keywords\n\n"
+                "Use commas to separate keywords:\n"
+                "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+                "Types:\n"
+                "• Required: [remote*] (MUST be in every message)\n"
+                "• Required OR: [remote*|online*] (either must be present)\n"
+                "• Exact: python, java, linux\n"
+                "• Wildcard: develop*, engineer* (matches variations)\n"
+                "• Phrases: support* engineer* (adjacent words)\n"
+                "• AND: python+django (advanced - both required)\n\n"
+                "💡 Logic: (ALL required) AND (at least one optional)\n"
+                "✨ No quotes needed - just use commas!\n\n"
+                "👇 Tap the button below to fill the command:"
+            )
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [InlineKeyboardButton("📝 Fill /keywords", 
+                                    switch_inline_query_current_chat="/keywords ")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(help_text, reply_markup=reply_markup)
             return
         
         keywords_text = ' '.join(context.args)
@@ -125,12 +149,28 @@ class CommandHandlers:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text(
-                "Please provide ignore keywords:\n"
-                "/ignore_keywords java*, senior*, manage*\n\n"
-                "⏰ These will block matching jobs from being forwarded to you.\n"
-                "Use commas to separate multiple keywords."
+            # Create help message with pre-fill button
+            help_text = (
+                "🚫 Set Ignore Keywords\n\n"
+                "Use commas to separate ignore keywords:\n"
+                "/ignore_keywords javascript*, manage*, senior*\n\n"
+                "Same rules as regular keywords:\n"
+                "• Exact: java, php, manager\n"
+                "• Wildcard: manage*, senior*, lead*\n"
+                "• Phrases: team* lead*, project* manager*\n\n"
+                "These will block job posts even if they match your keywords.\n\n"
+                "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
+                "👇 Tap the button below to fill the command:"
             )
+            
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            keyboard = [
+                [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
+                                    switch_inline_query_current_chat="/ignore_keywords ")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(help_text, reply_markup=reply_markup)
             return
         
         keywords_text = ' '.join(context.args)
