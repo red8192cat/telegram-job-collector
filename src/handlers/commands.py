@@ -86,7 +86,7 @@ class CommandHandlers:
         if not is_private_chat(update):
             return
         
-        await update.message.reply_text(get_help_text(), parse_mode='Markdown')
+        await update.message.reply_text(get_help_text())
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /keywords command"""
@@ -96,7 +96,7 @@ class CommandHandlers:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text(get_set_keywords_help(), parse_mode='Markdown')
+            await update.message.reply_text(get_set_keywords_help())
             return
         
         keywords_text = ' '.join(context.args)
