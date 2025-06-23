@@ -5,7 +5,7 @@ Helper utilities - Simplified menu and help system (Merged settings)
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 def create_main_menu():
-    """Create simplified main menu keyboard"""
+    """Create simplified main menu keyboard with merged settings"""
     keyboard = [
         [InlineKeyboardButton("🎯 Set Keywords", callback_data="menu_keywords")],
         [InlineKeyboardButton("🚫 Set Ignore Keywords", callback_data="menu_ignore")],

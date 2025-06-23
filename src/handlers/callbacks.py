@@ -30,9 +30,9 @@ class CallbackHandlers:
             await query.answer()
             
             if query.data == "menu_keywords":
-                await query.edit_message_text(get_keywords_help(), reply_markup=create_back_menu(), parse_mode='Markdown')
+                await query.edit_message_text(get_keywords_help(), reply_markup=create_back_menu())
             elif query.data == "menu_ignore":
-                await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu(), parse_mode='Markdown')
+                await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu())
             elif query.data == "menu_show_settings":
                 chat_id = query.from_user.id
                 
@@ -40,7 +40,7 @@ class CallbackHandlers:
                 keywords = await self.data_manager.get_user_keywords(chat_id)
                 ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
                 
-                # Build combined message - NO MARKDOWN to avoid parsing errors
+                # Build combined message - same as /my_settings command
                 msg = "⚙️ Your Current Settings\n\n"
                 
                 if keywords:
@@ -60,7 +60,7 @@ class CallbackHandlers:
                 
                 await query.edit_message_text(msg, reply_markup=create_back_menu())
             elif query.data == "menu_help":
-                await query.edit_message_text(get_help_text(), reply_markup=create_back_menu(), parse_mode='Markdown')
+                await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
             elif query.data == "menu_back":
                 await query.edit_message_text("📋 Main Menu:", reply_markup=create_main_menu())
         except Exception as e:
