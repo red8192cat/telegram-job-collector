@@ -62,16 +62,16 @@ class CommandHandlers:
         logger.info(f"Start command from user {update.effective_user.id}")
         
         welcome_msg = (
-            "🤖 *Welcome to Job Collector Bot!*\n\n"
-            "I help you collect job postings from configured channels based on your keywords\\.\n\n"
-            "✅ *Unlimited job forwards*\n"
-            "✅ *Advanced keyword filtering*\n"
-            "✅ *Ignore unwanted posts*\n\n"
+            "🤖 Welcome to Job Collector Bot!\n\n"
+            "I help you collect job postings from configured channels based on your keywords.\n\n"
+            "✅ Unlimited job forwards\n"
+            "✅ Advanced keyword filtering\n"
+            "✅ Ignore unwanted posts\n\n"
             "Use the menu below to get started:"
         )
         
         menu_markup = create_main_menu()
-        await update.message.reply_text(welcome_msg, reply_markup=menu_markup, parse_mode='MarkdownV2')
+        await update.message.reply_text(welcome_msg, reply_markup=menu_markup)
     
     async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /menu command"""
@@ -79,7 +79,7 @@ class CommandHandlers:
             return
         
         menu_markup = create_main_menu()
-        await update.message.reply_text("📋 *Main Menu:*", reply_markup=menu_markup, parse_mode='MarkdownV2')
+        await update.message.reply_text("📋 Main Menu:", reply_markup=menu_markup)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
@@ -236,11 +236,11 @@ class CommandHandlers:
         elif status == "not_initialized":
             await update.message.reply_text("❌ User account monitoring failed to initialize.")
         elif status == "waiting_for_code":
-            await update.message.reply_text("📱 *Waiting for SMS verification code*\n\nPlease send the code you received.", parse_mode='Markdown')
+            await update.message.reply_text("📱 Waiting for SMS verification code\n\nPlease send the code you received.")
         elif status == "waiting_for_2fa":
-            await update.message.reply_text("🔐 *Waiting for 2FA password*\n\nPlease send your two-factor authentication password.", parse_mode='Markdown')
+            await update.message.reply_text("🔐 Waiting for 2FA password\n\nPlease send your two-factor authentication password.")
         elif status == "authenticated":
-            await update.message.reply_text("✅ *User account authenticated!*\n\nMonitoring is active and working.", parse_mode='Markdown')
+            await update.message.reply_text("✅ User account authenticated!\n\nMonitoring is active and working.")
         else:
             await update.message.reply_text("❓ Unknown status. Use /auth_restart to restart authentication.")
 
@@ -263,7 +263,7 @@ class CommandHandlers:
         try:
             success = await user_monitor.restart_auth(chat_id)
             if success:
-                await update.message.reply_text("🔄 *Authentication restarted*\n\nCheck your phone for the verification code.", parse_mode='Markdown')
+                await update.message.reply_text("🔄 Authentication restarted\n\nCheck your phone for the verification code.")
             else:
                 await update.message.reply_text("❌ Failed to restart authentication.")
         except Exception as e:
@@ -280,22 +280,21 @@ class CommandHandlers:
         
         if not context.args:
             await update.message.reply_text(
-                "📋 *Admin Commands*\n\n"
-                "*System:*\n"
+                "📋 Admin Commands\n\n"
+                "System:\n"
                 "• /admin health - System health check\n"
                 "• /admin stats - Database statistics\n"
                 "• /admin errors - Show recent errors\n\n"
-                "*Channel Management:*\n"
+                "Channel Management:\n"
                 "• /admin channels - List all channels\n"
                 "• /admin add_user_channel @channel - Add user monitor channel\n"
                 "• /admin remove_user_channel @channel - Remove user channel\n"
                 "• /admin export_config - Update config.json\n\n"
-                "*Data Management:*\n"
+                "Data Management:\n"
                 "• /admin export - Export all data to JSON files\n"
                 "• /admin import - Import from JSON files\n"
                 "• /admin backup_manual - Create manual backup\n"
-                "• /admin list_backups - List all backups",
-                parse_mode='Markdown'
+                "• /admin list_backups - List all backups"
             )
             return
         
@@ -349,10 +348,10 @@ class CommandHandlers:
             else:
                 health_status.append("ℹ️ User Monitor: Not configured")
             
-            message = "🏥 *System Health Check*\n\n"
+            message = "🏥 System Health Check\n\n"
             message += "\n".join(health_status)
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
         except Exception as e:
             await update.message.reply_text(f"❌ Health check failed: {str(e)}")
     
@@ -368,7 +367,7 @@ class CommandHandlers:
             user_channels = await self.data_manager.get_user_monitored_channels_db()
             
             message = (
-                f"📊 *Database Statistics*\n\n"
+                f"📊 Database Statistics\n\n"
                 f"👥 Total Users: {total_users}\n"
                 f"🎯 Total Keywords: {total_keywords}\n"
                 f"📈 Avg Keywords/User: {total_keywords / total_users if total_users > 0 else 0:.1f}\n\n"
@@ -376,7 +375,7 @@ class CommandHandlers:
                 f"👤 User Channels: {len(user_channels)}"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
         except Exception as e:
             await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
     
@@ -396,10 +395,10 @@ class CommandHandlers:
         recent_errors = collector.get_recent_errors(24)
         
         if not recent_errors:
-            await update.message.reply_text("✅ *No errors in last 24 hours*\n\nBot is running smoothly!", parse_mode='Markdown')
+            await update.message.reply_text("✅ No errors in last 24 hours\n\nBot is running smoothly!")
             return
         
-        message = f"📋 *Recent Errors* (Last 24h)\n\n"
+        message = f"📋 Recent Errors (Last 24h)\n\n"
         message += f"📊 Total: {len(recent_errors)} errors\n\n"
         
         for error in recent_errors[-5:]:  # Show last 5
@@ -408,7 +407,7 @@ class CommandHandlers:
             message += f"📍 {error['module']}.py:{error['lineno']}\n"
             message += f"📝 {error['message'][:100]}\n\n"
         
-        await update.message.reply_text(message, parse_mode='Markdown')
+        await update.message.reply_text(message)
     
     async def admin_channels_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin channels command"""
@@ -500,16 +499,16 @@ class CommandHandlers:
             config_manager.export_users_config(users_data)
             
             message = (
-                f"✅ *Configuration Exported*\n\n"
+                f"✅ Configuration Exported\n\n"
                 f"📺 Bot Channels: {len(bot_channels)}\n"
                 f"👤 User Channels: {len(user_channels)}\n"
                 f"👥 Users: {len(users_data)}\n\n"
                 f"Files updated:\n"
-                f"• `data/config/channels.json`\n"
-                f"• `data/config/users.json`"
+                f"• data/config/channels.json\n"
+                f"• data/config/users.json"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Export failed: {str(e)}")
@@ -528,18 +527,18 @@ class CommandHandlers:
             config_manager.export_users_config(users_data)
             
             message = (
-                f"✅ *Data Export Complete*\n\n"
-                f"📊 *Exported:*\n"
+                f"✅ Data Export Complete\n\n"
+                f"📊 Exported:\n"
                 f"• {len(bot_channels)} bot channels\n"
                 f"• {len(user_channels)} user channels\n"
                 f"• {len(users_data)} users with settings\n\n"
-                f"📁 *Files created:*\n"
-                f"• `data/config/channels.json`\n"
-                f"• `data/config/users.json`\n\n"
-                f"🔄 Use `/admin import` to restore from these files"
+                f"📁 Files created:\n"
+                f"• data/config/channels.json\n"
+                f"• data/config/users.json\n\n"
+                f"🔄 Use /admin import to restore from these files"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Export failed: {str(e)}")
@@ -562,15 +561,15 @@ class CommandHandlers:
                 await self.data_manager.import_users_from_config(users_data)
             
             message = (
-                f"✅ *Data Import Complete*\n\n"
-                f"📊 *Imported:*\n"
+                f"✅ Data Import Complete\n\n"
+                f"📊 Imported:\n"
                 f"• {len(config_bot_channels)} bot channels\n"
                 f"• {len(config_user_channels)} user channels\n"
                 f"• {len(users_data)} users with settings\n\n"
-                f"⚠️ *Warning:* This overwrites existing database data"
+                f"⚠️ Warning: This overwrites existing database data"
             )
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Import failed: {str(e)}")
@@ -593,10 +592,10 @@ class CommandHandlers:
             
             if timestamp:
                 message = (
-                    f"✅ *Manual Backup Created*\n\n"
+                    f"✅ Manual Backup Created\n\n"
                     f"🕐 Timestamp: {timestamp}\n"
-                    f"📁 Location: `data/config/backups/`\n\n"
-                    f"📊 *Backed up:*\n"
+                    f"📁 Location: data/config/backups/\n\n"
+                    f"📊 Backed up:\n"
                     f"• {len(bot_channels)} bot channels\n" 
                     f"• {len(user_channels)} user channels\n"
                     f"• {len(users_data)} users with settings\n\n"
@@ -605,7 +604,7 @@ class CommandHandlers:
             else:
                 message = "❌ Failed to create manual backup"
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Backup failed: {str(e)}")
@@ -618,23 +617,23 @@ class CommandHandlers:
             backups = config_manager.list_backups()
             
             if not backups:
-                await update.message.reply_text("📭 No backups found\n\nUse `/admin backup_manual` to create one.")
+                await update.message.reply_text("📭 No backups found\n\nUse /admin backup_manual to create one.")
                 return
             
-            message = f"📋 *Available Backups* ({len(backups)} total)\n\n"
+            message = f"📋 Available Backups ({len(backups)} total)\n\n"
             
             # Group by type
             manual_backups = [b for b in backups if b['type'] == 'manual']
             auto_backups = [b for b in backups if b['type'] == 'auto']
             
             if manual_backups:
-                message += f"🔧 *Manual Backups* ({len(manual_backups)}):\n"
+                message += f"🔧 Manual Backups ({len(manual_backups)}):\n"
                 for backup in manual_backups[:10]:  # Show max 10
                     message += f"• {backup['filename']} - {backup['created']}\n"
                 message += "\n"
             
             if auto_backups:
-                message += f"🤖 *Auto Backups* ({len(auto_backups)}):\n"
+                message += f"🤖 Auto Backups ({len(auto_backups)}):\n"
                 for backup in auto_backups[:5]:  # Show max 5
                     message += f"• {backup['filename']} - {backup['created']}\n"
                 if len(auto_backups) > 5:
@@ -642,7 +641,7 @@ class CommandHandlers:
             
             message += f"\n💡 Auto backups are cleaned up automatically"
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error listing backups: {str(e)}")
