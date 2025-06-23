@@ -521,28 +521,18 @@ class UserAccountMonitor:
         return channels
     
     async def _export_config(self):
-        """Export current database state to config.json"""
+        """Export current database state to config files"""
         try:
             # Get channels from database
-            bot_channels = await self.data_manager.get_bot_monitored_channels_db()
-            user_channels = await self.data_manager.get_user_monitored_channels_db()
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
             
-            # Create config structure
-            config = {
-                "channels": bot_channels,
-                "user_monitored_channels": user_channels,
-                "last_exported": datetime.now().isoformat()
-            }
+            # Export to config file
+            self.config_manager.export_channels_config(bot_channels, user_channels)
             
-            # Write to config.json
-            with open('config.json', 'w') as f:
-                json.dump(config, f, indent=2)
-            
-            logger.info("⚙️ SYSTEM: Exported channels to config.json")
+            logger.info("⚙️ SYSTEM: Exported channels to config files")
             
         except Exception as e:
             logger.error(f"⚙️ SYSTEM: Failed to export config: {e}")
-    
     async def process_channel_message(self, event):
         """Process new message from user-monitored channels"""
         if not self.enabled or not event.message or not event.message.text:

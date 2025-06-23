@@ -6,13 +6,12 @@
   ],
   "user_monitored_channels": [
     "@jobs",
-    "@remotework",
+    "@remotework", 
     "@startupjobs",
     "@techjobs",
-    "@devjobs",
-    "@pythonJobs",
-    "@reactjobs",
-    "@europejobs",
-    "@usajobs"
-  ]
+    "@devjobs"
+  ],
+  "export_timestamp": "2025-01-01T00:00:00.000000",
+  "total_bot_channels": 3,
+  "total_user_channels": 5
 }

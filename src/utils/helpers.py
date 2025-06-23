@@ -1,5 +1,6 @@
 """
 Helper utilities - Menu creation and validation functions
+Updated with new keyword system (no quotes)
 """
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -25,7 +26,7 @@ def is_private_chat(update: Update) -> bool:
     return update.effective_chat.type == 'private'
 
 def get_help_text():
-    """Get comprehensive help text"""
+    """Get comprehensive help text - UPDATED for new system"""
     return (
         "📋 Available Commands:\n\n"
         "🎯 Keywords Management:\n"
@@ -43,66 +44,71 @@ def get_help_text():
         "/menu - Show interactive menu\n"
         "/help - Show this help message\n\n"
         "💡 Keyword Types:\n"
-        "• Required: [remote], [remote|online] (MUST be in every message)\n"
-        "• Single: python, javascript, linux\n"
-        "• AND: python+junior+remote (all 3 must be present)\n"
-        "• Exact: \"project manager\" (exact order)\n"
-        "• Wildcard: manag* (matches manager, managing, management)\n"
-        "• Mixed: [remote|online], python+\"project manag*\", linux\n"
-        "• Ignore keywords help filter out unwanted messages\n\n"
+        "• Required: [remote*], [remote*|online*] (MUST be in every message)\n"
+        "• Single: python, java, linux (exact words)\n"
+        "• Wildcard: develop*, engineer*, support* (word variations)\n"
+        "• Phrases: support* engineer*, senior* develop* (adjacent words)\n"
+        "• AND: python+django (both must be present - advanced)\n\n"
+        "Examples:\n"
+        "• /keywords [remote*|online*], python, develop*, support* engineer*\n"
+        "• /ignore_keywords javascript*, manage*, senior*\n\n"
         "🎯 Logic: (ALL required) AND (at least one optional)\n"
-        "📝 Required OR: [remote|online] = 'remote' OR 'online' must be present\n"
-        "Example: [remote|online], linux, python → needs ('remote' OR 'online') AND ('linux' OR 'python')"
+        "📝 Use * for wildcards, exact words for precision (java vs javascript)"
     )
 
 def get_keywords_help():
-    """Get keywords help text"""
+    """Get keywords help text - UPDATED for new system"""
     return (
-        "🎯 To set keywords, use:\n"
-        "/keywords [remote|online], python, \"project manag*\"\n"
-        "/keywords [remote], [senior|lead], python+\"data scientist\"\n\n"
+        "🎯 To set keywords, use commas to separate them:\n"
+        "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
         "Types:\n"
-        "• Required: [remote] (MUST be in every message)\n"
-        "• Required OR: [remote|online] (either must be present)\n"
-        "• Single: python\n"
-        "• AND: python+junior\n"
-        "• Exact: \"project manager\"\n"
-        "• Wildcard: manag*\n"
-        "• Mixed: [remote|online], python+\"data manag*\"\n\n"
-        "💡 Logic: (ALL required) AND (at least one optional)"
+        "• Required: [remote*] (MUST be in every message)\n"
+        "• Required OR: [remote*|online*] (either must be present)\n"
+        "• Exact: python, java, linux\n"
+        "• Wildcard: develop*, engineer* (matches variations)\n"
+        "• Phrases: support* engineer* (adjacent words)\n"
+        "• AND: python+django (advanced - both required)\n\n"
+        "💡 Logic: (ALL required) AND (at least one optional)\n"
+        "✨ No quotes needed - just use commas!"
     )
 
 def get_ignore_help():
-    """Get ignore keywords help text"""
+    """Get ignore keywords help text - UPDATED for new system"""
     return (
-        "🚫 To set ignore keywords, use:\n"
-        "/ignore_keywords java, php, senior\n\n"
-        "💡 /ignore_keywords overwrites your current list\n"
+        "🚫 To set ignore keywords, use commas to separate them:\n"
+        "/ignore_keywords javascript*, manage*, senior*\n\n"
+        "💡 Same rules as regular keywords:\n"
+        "• Exact: java, php, manager\n"
+        "• Wildcard: manage*, senior*, lead*\n"
+        "• Phrases: team* lead*, project* manager*\n\n"
         "🗑️ Use /purge_ignore to clear all ignore keywords"
     )
 
 def get_add_keyword_help():
-    """Get add keyword help text"""
+    """Get add keyword help text - UPDATED for new system"""
     return (
         "Please provide a keyword:\n"
-        "/add_keyword_to_list [remote|online]\n"
-        "/add_keyword_to_list python+junior+remote\n"
-        "/add_keyword_to_list \"project manag*\"\n"
-        "/add_keyword_to_list develop*"
+        "/add_keyword_to_list [remote*|online*]\n"
+        "/add_keyword_to_list python+django\n"
+        "/add_keyword_to_list support* engineer*\n"
+        "/add_keyword_to_list develop*\n\n"
+        "💡 Use * for wildcards, commas not needed for single keywords"
     )
 
 def get_set_keywords_help():
-    """Get set keywords help text"""
+    """Get set keywords help text - UPDATED for new system"""
     return (
-        "Please provide keywords:\n"
-        "/keywords [remote|online], python, \"project manag*\"\n"
-        "/keywords [remote], [senior|lead], python+\"data scientist\"\n\n"
-        "• Use [brackets] for REQUIRED keywords (must be in every message)\n"
-        "• Use [word1|word2] for required OR (either word1 OR word2 must be present)\n"
-        "• Use + for AND logic (all parts must be present)\n"
-        "• Use \"quotes\" for exact phrases in order\n"
-        "• Use * for wildcards at word endings\n"
-        "• Logic: (ALL required) AND (at least one optional)"
+        "Please provide keywords separated by commas:\n"
+        "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+        "• Use commas to separate keywords\n"
+        "• Use [brackets] for REQUIRED keywords\n"
+        "• Use * for wildcards (develop* = developer, development)\n"
+        "• Use spaces for phrases (support* engineer*)\n"
+        "• No quotes needed!\n\n"
+        "Examples:\n"
+        "• /keywords java, python, develop*\n"
+        "• /keywords [remote*], senior* develop*, react\n"
+        "• /keywords support* engineer*, linux*, python"
     )
 
 def get_contact_info():

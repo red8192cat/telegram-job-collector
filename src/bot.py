@@ -44,8 +44,10 @@ class JobCollectorBot:
         if admin_id_str and admin_id_str.isdigit():
             self._admin_id = int(admin_id_str)
         
-        # Initialize managers
-        self.config_manager = ConfigManager()
+        # Initialize managers with backup support
+        logger.info("🔄 Initializing configuration manager with backup support...")
+        self.config_manager = ConfigManager()  # This will auto-backup on startup
+        
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
         self.data_manager = SQLiteManager(db_path)
         
@@ -99,6 +101,9 @@ class JobCollectorBot:
         await self.data_manager.initialize()
         logger.info("Database initialized successfully")
         
+        # Import from config files if database is empty
+        await self._import_on_startup()
+        
         # Core bot functionality is ready
         logger.info("Core bot functionality ready")
         
@@ -137,7 +142,7 @@ class JobCollectorBot:
                 old_bot_channels = self.config_manager.get_channels_to_monitor()
                 old_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
                 
-                self.config_manager.load_config()
+                self.config_manager.load_channels_config()
                 
                 new_bot_channels = self.config_manager.get_channels_to_monitor()
                 new_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
@@ -229,20 +234,41 @@ class JobCollectorBot:
             setup_error_monitoring(self.app.bot, admin_id)
             logger.info(f"✅ Error monitoring initialized for admin ID: {admin_id}")
             
-            # Send initial notification to admin
-            try:
-                await self.app.bot.send_message(
-                    chat_id=admin_id,
-                    text="🤖 **Bot Started Successfully**\n\n✅ Error monitoring active\n📊 Admin commands available",
-                    parse_mode='Markdown'
-                )
-            except Exception as e:
-                logger.warning(f"Could not send startup notification to admin: {e}")
+            # Send enhanced startup notification with backup info
+            await self.notify_admin_about_startup()
                 
         except ImportError as e:
             logger.warning(f"Error monitoring not available: {e}")
         except Exception as e:
             logger.error(f"Failed to initialize error monitoring: {e}")
+    
+    async def notify_admin_about_startup(self):
+        """Notify admin about startup with backup info"""
+        if not self._admin_id:
+            return
+        
+        try:
+            # Get backup info
+            backups = self.config_manager.list_backups()
+            backup_count = len(backups)
+            latest_backup = backups[0]['created'] if backups else "None"
+            
+            startup_message = (
+                f"🤖 **Bot Started Successfully**\n\n"
+                f"✅ Error monitoring active\n"
+                f"📊 Admin commands available\n"
+                f"💾 Config backups: {backup_count} files\n"
+                f"📅 Latest backup: {latest_backup}\n\n"
+                f"Use `/admin backups` to manage config backups"
+            )
+            
+            await self.app.bot.send_message(
+                chat_id=self._admin_id,
+                text=startup_message,
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            logger.warning(f"Could not send startup notification with backup info: {e}")
     
     async def setup_bot_menu(self):
         """Set up the bot menu commands - AUTH COMMANDS HIDDEN FROM PUBLIC"""
@@ -286,6 +312,58 @@ class JobCollectorBot:
             logger.error(f"Error in scheduled job: {e}")
         finally:
             await self.app.shutdown()
+    
+    async def _import_on_startup(self):
+        """Import from config files if database is empty"""
+        try:
+            # Check if database has any channels
+            all_users = await self.data_manager.get_all_users_with_keywords()
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            
+            imported_something = False
+            
+            # Import channels if database is empty
+            if not bot_channels and not user_channels:
+                self.config_manager.load_channels_config()
+                config_bot_channels = self.config_manager.get_channels_to_monitor()
+                config_user_channels = self.config_manager.get_user_monitored_channels()
+                
+                if config_bot_channels or config_user_channels:
+                    await self.data_manager.import_channels_from_config(config_bot_channels, config_user_channels)
+                    logger.info(f"⚙️ STARTUP: Imported channels from config: {len(config_bot_channels)} bot, {len(config_user_channels)} user")
+                    imported_something = True
+            
+            # Import users if database is empty
+            if not all_users:
+                users_data = self.config_manager.load_users_config()
+                if users_data:
+                    await self.data_manager.import_users_from_config(users_data)
+                    logger.info(f"⚙️ STARTUP: Imported {len(users_data)} users from config")
+                    imported_something = True
+            
+            if not imported_something:
+                logger.info("⚙️ STARTUP: Database has data, skipping config import")
+                # Export current state to config files to ensure sync
+                await self._export_current_state()
+                
+        except Exception as e:
+            logger.error(f"⚙️ STARTUP: Failed to import from config: {e}")
+
+    async def _export_current_state(self):
+        """Export current database state to config files"""
+        try:
+            # Export channels
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            self.config_manager.export_channels_config(bot_channels, user_channels)
+            
+            # Export users
+            users_data = await self.data_manager.export_all_users_for_config()
+            self.config_manager.export_users_config(users_data)
+            
+            logger.info("⚙️ STARTUP: Exported current state to config files")
+            
+        except Exception as e:
+            logger.error(f"⚙️ STARTUP: Failed to export current state: {e}")
 
 def main():
     """Main function"""

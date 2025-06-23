@@ -1,6 +1,28 @@
-# Environment variables
-.env
-config.json
+# Sensitive environment files
+data/config/bot-secrets.env
+
+# Real configuration files (auto-generated, contains real data)
+data/config/channels.json
+data/config/users.json
+
+# Backup files (contain real data)
+data/config/channels.json.backup
+data/config/users.json.backup
+data/config/backups/*.json
+
+# Database files
+data/bot.db
+data/bot.db-shm
+data/bot.db-wal
+data/*.db
+data/*.db-*
+
+# Session files
+data/*.session
+data/*.session-journal
+
+# But keep backup directory structure
+!data/config/backups/.gitkeep
 
 # Python
 __pycache__/
@@ -11,15 +33,6 @@ __pycache__/
 env/
 venv/
 .venv/
-
-# SQLite database files
-data/bot.db*
-*.db
-*.db-shm
-*.db-wal
-
-# Docker
-.dockerignore
 
 # Logs
 *.log
@@ -33,3 +46,7 @@ data/bot.db*
 # OS
 .DS_Store
 Thumbs.db
+
+# Legacy files (if they exist)
+.env
+config.json
