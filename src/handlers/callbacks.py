@@ -40,28 +40,28 @@ class CallbackHandlers:
                 keywords = await self.data_manager.get_user_keywords(chat_id)
                 ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
                 
-                # Build combined message
-                msg = "⚙️ **Your Current Settings**\n\n"
+                # Build combined message - NO MARKDOWN to avoid parsing errors
+                msg = "⚙️ Your Current Settings\n\n"
                 
                 if keywords:
-                    msg += f"📝 **Keywords:** {', '.join(keywords)}\n\n"
+                    msg += f"📝 Keywords: {', '.join(keywords)}\n\n"
                 else:
-                    msg += "📝 **Keywords:** None set\nUse `/keywords` to set them.\n\n"
+                    msg += "📝 Keywords: None set\nUse /keywords to set them.\n\n"
                 
                 if ignore_keywords:
-                    msg += f"🚫 **Ignore Keywords:** {', '.join(ignore_keywords)}\n\n"
+                    msg += f"🚫 Ignore Keywords: {', '.join(ignore_keywords)}\n\n"
                 else:
-                    msg += "🚫 **Ignore Keywords:** None set\nUse `/ignore_keywords` to set them.\n\n"
+                    msg += "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.\n\n"
                 
-                msg += "💡 **Quick Commands:**\n"
-                msg += "• `/keywords` - Update search keywords\n"
-                msg += "• `/ignore_keywords` - Update ignore keywords\n"
-                msg += "• `/purge_ignore` - Clear all ignore keywords"
+                msg += "💡 Quick Commands:\n"
+                msg += "• /keywords - Update search keywords\n"
+                msg += "• /ignore_keywords - Update ignore keywords\n"
+                msg += "• /purge_ignore - Clear all ignore keywords"
                 
-                await query.edit_message_text(msg, reply_markup=create_back_menu(), parse_mode='Markdown')
+                await query.edit_message_text(msg, reply_markup=create_back_menu())
             elif query.data == "menu_help":
                 await query.edit_message_text(get_help_text(), reply_markup=create_back_menu(), parse_mode='Markdown')
             elif query.data == "menu_back":
-                await query.edit_message_text("📋 **Main Menu:**", reply_markup=create_main_menu(), parse_mode='Markdown')
+                await query.edit_message_text("📋 Main Menu:", reply_markup=create_main_menu())
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")
