@@ -276,12 +276,12 @@ class JobCollectorBot:
         
         # PUBLIC commands only - auth commands are hidden
         commands = [
-            BotCommand("start", "🚀 Start the bot and see welcome message"),
-            BotCommand("keywords", "🎯 Set your search keywords"),
+            BotCommand("start", "🚀 Show main menu"),
+            BotCommand("keywords", "🎯 Set search keywords"),
             BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
-            BotCommand("my_settings", "⚙️ Show your current settings"),
+            BotCommand("my_settings", "⚙️ Show current settings"),
             BotCommand("purge_ignore", "🗑️ Clear all ignore keywords"),
-            BotCommand("help", "❓ Show help and contact info"),
+            BotCommand("help", "❓ Show help"),
         ]
         
         # NOTE: auth_status, auth_restart, and admin commands are NOT in public menu

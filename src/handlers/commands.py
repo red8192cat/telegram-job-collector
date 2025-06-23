@@ -61,9 +61,8 @@ class CommandHandlers:
         logger.info(f"Start command from user {update.effective_user.id}")
         
         welcome_msg = (
-            "🤖 Welcome to Job Collector Bot!\n\n"
-            "I help you collect job postings from configured channels based on your keywords.\n\n"
-            "✅ Unlimited job forwards\n"
+            "🤖 Welcome to JobFinderBot!\n\n"
+            "I help you collect job postings from some channels based on your keywords.\n\n"
             "✅ Advanced keyword filtering\n"
             "✅ Ignore unwanted posts\n\n"
             "Use the menu below to get started:"
