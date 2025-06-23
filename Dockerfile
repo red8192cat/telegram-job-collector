@@ -1,8 +1,19 @@
 FROM python:3.11-alpine
 WORKDIR /app
 
-# Install required packages including for Telethon
-RUN apk add --no-cache dcron sqlite gcc musl-dev libffi-dev
+# Install required packages including Rust for cryptg
+RUN apk add --no-cache \
+    dcron \
+    sqlite \
+    gcc \
+    musl-dev \
+    libffi-dev \
+    cargo \
+    rust \
+    openssl-dev
+
+# Upgrade pip to ensure we can use prebuilt wheels
+RUN pip install --upgrade pip
 
 # Copy requirements first for better caching
 COPY requirements.txt .
