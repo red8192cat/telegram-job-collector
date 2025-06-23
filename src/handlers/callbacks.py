@@ -1,5 +1,5 @@
 """
-Callback Handlers - Only for settings and help (keywords buttons pre-fill directly)
+Callback Handlers - Complete file with debugging
 """
 
 import logging
@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import create_main_menu, create_back_menu, get_help_text, create_ignore_keywords_help_keyboard
+from utils.helpers import create_main_menu, create_back_menu, get_help_text, create_ignore_keywords_help_keyboard, create_keywords_help_keyboard
 
 logger = logging.getLogger(__name__)
 
@@ -18,12 +18,16 @@ class CallbackHandlers:
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("Callback query handler registered")
+        logger.info("CALLBACK HANDLER REGISTERED SUCCESSFULLY")
+        print("CALLBACK HANDLER REGISTERED!")  # Extra debug
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
+        logger.info(f"CALLBACK RECEIVED: {update.callback_query.data if update.callback_query else 'None'}")
+        
         query = update.callback_query
         if not query:
+            logger.warning("No callback query found")
             return
             
         try:
@@ -47,7 +51,6 @@ class CallbackHandlers:
                     "👇 Tap the button below to fill the command:"
                 )
                 
-                from utils.helpers import create_keywords_help_keyboard
                 await query.edit_message_text(help_text, reply_markup=create_keywords_help_keyboard())
                 
             elif query.data == "menu_ignore":
@@ -65,10 +68,46 @@ class CallbackHandlers:
                     "👇 Tap the button below to fill the command:"
                 )
                 
-                from utils.helpers import create_ignore_keywords_help_keyboard
                 await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
-            
-            if query.data == "menu_show_settings":
+                
+            elif query.data == "test_button":
+                # Test button to verify callbacks work
+                logger.info(f"TEST BUTTON PRESSED by user {query.from_user.id}")
+                await query.edit_message_text(
+                    "🧪 Test button works!\n\nCallbacks are functioning properly.",
+                    reply_markup=create_back_menu()
+                )
+                
+            elif query.data == "clear_ignore_keywords":
+                # Handle clear ignore keywords action
+                logger.info(f"Clear ignore keywords button pressed by user {query.from_user.id}")
+                chat_id = query.from_user.id
+                
+                try:
+                    result = await self.data_manager.purge_user_ignore_keywords(chat_id)
+                    logger.info(f"Purge result: {result}")
+                    
+                    if result:
+                        success_message = (
+                            "✅ All ignore keywords cleared!\n\n"
+                            "🎯 Your keyword filtering is now based only on your main keywords.\n"
+                            "⏰ This change applies to all NEW jobs going forward."
+                        )
+                        await query.edit_message_text(success_message, reply_markup=create_back_menu())
+                    else:
+                        no_keywords_message = (
+                            "ℹ️ No ignore keywords found\n\n"
+                            "You don't have any ignore keywords set to clear."
+                        )
+                        await query.edit_message_text(no_keywords_message, reply_markup=create_back_menu())
+                except Exception as e:
+                    logger.error(f"Error clearing ignore keywords: {e}")
+                    await query.edit_message_text(
+                        "❌ Error clearing ignore keywords. Please try again.", 
+                        reply_markup=create_back_menu()
+                    )
+                
+            elif query.data == "menu_show_settings":
                 chat_id = query.from_user.id
                 
                 # Get both keywords and ignore keywords
