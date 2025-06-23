@@ -1,6 +1,6 @@
 """
-OPTIONAL User Account Monitor with Telegram Chat Authentication
-Allows authentication via direct messages with the bot for security and convenience
+SECURE User Account Monitor with Admin-Only Authentication
+Only authorized admin can use authentication commands
 """
 
 import asyncio
@@ -33,7 +33,14 @@ class UserAccountMonitor:
         self.auth_phone_hash = None
         self.waiting_for_code = False
         self.waiting_for_2fa = False
-        self.expected_user_id = None  # User ID that should authenticate
+        self.expected_user_id = None
+        
+        # SECURITY: Get authorized admin ID
+        self.authorized_admin_id = None
+        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
+        if admin_id_str and admin_id_str.isdigit():
+            self.authorized_admin_id = int(admin_id_str)
+            logger.info(f"Authorized admin ID: {self.authorized_admin_id}")
         
         # Only initialize if credentials are available
         if self._has_credentials():
@@ -60,31 +67,43 @@ class UserAccountMonitor:
             os.getenv('PHONE_NUMBER')
         ])
     
+    def is_authorized_admin(self, user_id: int):
+        """Check if user is authorized admin"""
+        if not self.authorized_admin_id:
+            # If no admin ID set, allow during initial setup only
+            return not await self.client.is_user_authorized() if self.client else True
+        
+        return user_id == self.authorized_admin_id
+    
     async def initialize(self):
-        """Initialize the user client and set up monitoring (only if enabled)"""
+        """Initialize the user client and set up monitoring"""
         if not self.enabled or not self.client:
             logger.info("User monitor not enabled - skipping initialization")
             return False
         
         try:
-            # Try to connect with existing session
             await self.client.connect()
             
             if not await self.client.is_user_authorized():
                 logger.info("User account not authorized - starting authentication process")
                 await self._start_auth_process()
-                return False  # Will be initialized after successful auth
+                return False
             else:
                 logger.info("User account already authorized")
-                # Get user info to set expected_user_id
                 me = await self.client.get_me()
                 self.expected_user_id = me.id
                 logger.info(f"Authorized as: {me.first_name} {me.last_name or ''} (ID: {me.id})")
                 
-                # Continue with normal initialization
+                # Notify admin that monitoring is active
+                await self._notify_admin(
+                    f"✅ **User Account Monitoring Active**\n\n"
+                    f"👤 Authenticated as: {me.first_name} {me.last_name or ''}\n"
+                    f"📱 Phone: {self.auth_phone}\n"
+                    f"🎯 Ready to monitor channels!"
+                )
+                
                 await self.update_monitored_entities()
                 
-                # Set up message handler
                 @self.client.on(events.NewMessage)
                 async def handle_new_message(event):
                     await self.process_channel_message(event)
@@ -94,7 +113,7 @@ class UserAccountMonitor:
                 
         except Exception as e:
             logger.error(f"Failed to initialize user monitor: {e}")
-            # Try to start auth process
+            await self._notify_admin(f"❌ **Authentication Failed**\n\nError: {str(e)}")
             try:
                 await self._start_auth_process()
             except:
@@ -102,31 +121,52 @@ class UserAccountMonitor:
             return False
     
     async def _start_auth_process(self):
-        """Start the authentication process"""
+        """Start authentication and notify admin"""
         try:
-            # Send authentication code
             result = await self.client.send_code_request(self.auth_phone)
             self.auth_phone_hash = result.phone_code_hash
             self.waiting_for_code = True
             
             logger.info(f"Authentication code sent to {self.auth_phone}")
-            logger.info("📱 Please send the verification code to the bot via private message")
+            
+            # Notify admin immediately
+            await self._notify_admin(
+                f"🔐 **Authentication Required**\n\n"
+                f"📱 SMS code sent to: {self.auth_phone}\n"
+                f"📨 Please send the verification code to this chat\n\n"
+                f"Commands:\n"
+                f"• `/auth_status` - Check status\n"
+                f"• `/auth_restart` - Restart if needed\n\n"
+                f"⚠️ Only you can see and use these commands."
+            )
                     
         except PhoneNumberInvalidError:
             logger.error(f"Invalid phone number: {self.auth_phone}")
+            await self._notify_admin(f"❌ **Invalid Phone Number**\n\n{self.auth_phone}")
         except Exception as e:
             logger.error(f"Failed to start authentication: {e}")
+            await self._notify_admin(f"❌ **Authentication Error**\n\n{str(e)}")
+    
+    async def _notify_admin(self, message: str):
+        """Send notification to authorized admin"""
+        if self.authorized_admin_id and self.bot_instance:
+            try:
+                await self.bot_instance.send_message(
+                    chat_id=self.authorized_admin_id,
+                    text=message,
+                    parse_mode='Markdown'
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify admin: {e}")
     
     async def handle_auth_message(self, user_id: int, message_text: str):
-        """Handle authentication messages from Telegram chat"""
-        # If we don't know the expected user ID yet, we need to verify ownership
-        if self.expected_user_id is not None and user_id != self.expected_user_id:
-            # After initial auth, only accept from the authenticated user
+        """Handle authentication messages - ADMIN ONLY"""
+        # SECURITY: Only authorized admin can authenticate
+        if not self.is_authorized_admin(user_id):
             return False
         
         try:
             if self.waiting_for_code:
-                # User sent verification code
                 code = message_text.strip()
                 if not code.isdigit() or len(code) < 4:
                     await self._send_auth_message(user_id, "❌ Please send only the numeric verification code (e.g., 12345)")
@@ -135,53 +175,57 @@ class UserAccountMonitor:
                 try:
                     result = await self.client.sign_in(phone=self.auth_phone, code=code, phone_code_hash=self.auth_phone_hash)
                     
-                    # Authentication successful
                     self.waiting_for_code = False
                     self.expected_user_id = result.id
                     
-                    await self._send_auth_message(user_id, "✅ Authentication successful! User account monitoring is now active.")
-                    logger.info(f"User authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
+                    await self._send_auth_message(
+                        user_id, 
+                        f"✅ **Authentication Successful!**\n\n"
+                        f"👤 Authenticated as: {result.first_name} {result.last_name or ''}\n"
+                        f"🎯 User account monitoring is now active!"
+                    )
                     
-                    # Complete initialization
+                    logger.info(f"User authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
                     await self._complete_initialization()
                     return True
                     
                 except SessionPasswordNeededError:
-                    # 2FA is enabled
                     self.waiting_for_code = False
                     self.waiting_for_2fa = True
-                    await self._send_auth_message(user_id, "🔐 Two-factor authentication is enabled. Please send your 2FA password:")
+                    await self._send_auth_message(user_id, "🔐 **Two-Factor Authentication Required**\n\nPlease send your 2FA password:")
                     return True
                     
                 except PhoneCodeInvalidError:
-                    await self._send_auth_message(user_id, "❌ Invalid verification code. Please try again:")
+                    await self._send_auth_message(user_id, "❌ **Invalid Code**\n\nPlease try again:")
                     return True
                     
             elif self.waiting_for_2fa:
-                # User sent 2FA password
                 password = message_text.strip()
                 
                 try:
                     result = await self.client.sign_in(password=password)
                     
-                    # Authentication successful
                     self.waiting_for_2fa = False
                     self.expected_user_id = result.id
                     
-                    await self._send_auth_message(user_id, "✅ Two-factor authentication successful! User account monitoring is now active.")
-                    logger.info(f"User 2FA authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
+                    await self._send_auth_message(
+                        user_id,
+                        f"✅ **2FA Authentication Successful!**\n\n"
+                        f"👤 Authenticated as: {result.first_name} {result.last_name or ''}\n"
+                        f"🎯 User account monitoring is now active!"
+                    )
                     
-                    # Complete initialization
+                    logger.info(f"User 2FA authentication successful for {result.first_name} {result.last_name or ''} (ID: {result.id})")
                     await self._complete_initialization()
                     return True
                     
                 except Exception as e:
-                    await self._send_auth_message(user_id, "❌ Invalid 2FA password. Please try again:")
+                    await self._send_auth_message(user_id, "❌ **Invalid 2FA Password**\n\nPlease try again:")
                     return True
             
         except Exception as e:
             logger.error(f"Authentication error: {e}")
-            await self._send_auth_message(user_id, f"❌ Authentication error: {str(e)}")
+            await self._send_auth_message(user_id, f"❌ **Authentication Error**\n\n{str(e)}")
             return True
         
         return False
@@ -191,21 +235,33 @@ class UserAccountMonitor:
         try:
             await self.update_monitored_entities()
             
-            # Set up message handler
             @self.client.on(events.NewMessage)
             async def handle_new_message(event):
                 await self.process_channel_message(event)
             
-            logger.info(f"✅ User monitor initialization completed - monitoring {len(self.monitored_entities)} additional channels")
+            # Notify about successful setup
+            channel_count = len(self.monitored_entities)
+            await self._notify_admin(
+                f"🎉 **Setup Complete!**\n\n"
+                f"📊 Monitoring {channel_count} additional channels\n"
+                f"🚀 Bot is now collecting jobs from user account!"
+            )
+            
+            logger.info(f"✅ User monitor initialization completed - monitoring {channel_count} additional channels")
             
         except Exception as e:
             logger.error(f"Failed to complete initialization: {e}")
+            await self._notify_admin(f"❌ **Setup Error**\n\n{str(e)}")
     
     async def _send_auth_message(self, user_id: int, message: str):
-        """Send authentication-related message to user"""
+        """Send authentication message to admin"""
         if self.bot_instance:
             try:
-                await self.bot_instance.send_message(chat_id=user_id, text=message)
+                await self.bot_instance.send_message(
+                    chat_id=user_id, 
+                    text=message,
+                    parse_mode='Markdown'
+                )
             except Exception as e:
                 logger.error(f"Failed to send auth message: {e}")
     
@@ -229,8 +285,8 @@ class UserAccountMonitor:
             return "not_authenticated"
     
     async def restart_auth(self, user_id: int):
-        """Restart authentication process (for troubleshooting)"""
-        if self.expected_user_id and user_id != self.expected_user_id:
+        """Restart authentication - ADMIN ONLY"""
+        if not self.is_authorized_admin(user_id):
             return False
         
         self.waiting_for_code = False
@@ -238,15 +294,15 @@ class UserAccountMonitor:
         self.auth_phone_hash = None
         
         await self._start_auth_process()
-        await self._send_auth_message(user_id, "🔄 Authentication process restarted. Please check your phone for the verification code.")
         return True
+    
+    # ... rest of the existing methods for channel monitoring remain the same ...
     
     async def update_monitored_entities(self):
         """Update the list of entities to monitor (USER channels only)"""
         if not self.enabled or not await self.client.is_user_authorized():
             return
             
-        # Get ONLY user-monitored channels (not the bot channels)
         channels = self.config_manager.get_user_monitored_channels()
         self.monitored_entities = {}
         
@@ -261,7 +317,6 @@ class UserAccountMonitor:
                 elif channel_identifier.startswith('-'):
                     entity = await self.client.get_entity(int(channel_identifier))
                 else:
-                    # Try as username first, then as ID
                     try:
                         entity = await self.client.get_entity(channel_identifier)
                     except:
@@ -285,13 +340,10 @@ class UserAccountMonitor:
         if chat_id not in self.monitored_entities:
             return
         
-        # Get channel info
         channel_info = self.monitored_entities[chat_id]
         logger.info(f"Processing user-monitored message from: {channel_info['identifier']}")
         
         message_text = event.message.text
-        
-        # Get all users with keywords
         all_users = await self.data_manager.get_all_users_with_keywords()
         
         forwarded_count = 0
@@ -299,25 +351,21 @@ class UserAccountMonitor:
             if user_chat_id <= 0:
                 continue
             
-            # Check user limits
             if not await self.data_manager.check_user_limit(user_chat_id):
                 continue
             
-            # Check keyword matching
             if not self.keyword_matcher.matches_user_keywords(message_text, keywords):
                 continue
             
-            # Check ignore keywords
             ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
             if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
                 continue
             
-            # Forward message using the bot
             if self.bot_instance:
                 try:
                     await self.forward_message_via_bot(user_chat_id, event.message, chat_id)
                     forwarded_count += 1
-                    await asyncio.sleep(0.5)  # Rate limiting
+                    await asyncio.sleep(0.5)
                 except Exception as e:
                     logger.error(f"Failed to forward to user {user_chat_id}: {e}")
         
@@ -330,7 +378,6 @@ class UserAccountMonitor:
             return
         
         try:
-            # Create a nice formatted message
             source_info = self.monitored_entities.get(source_chat_id, {})
             source_name = source_info.get('identifier', 'Unknown Channel')
             
@@ -341,7 +388,6 @@ class UserAccountMonitor:
                 text=formatted_message
             )
             
-            # Log the forward
             await self.data_manager.log_message_forward(
                 user_chat_id, source_chat_id, message.id
             )
@@ -351,7 +397,7 @@ class UserAccountMonitor:
             raise
     
     async def run_forever(self):
-        """Keep the client running (only if enabled)"""
+        """Keep the client running"""
         if not self.enabled or not self.client:
             logger.info("User monitor not running (disabled)")
             return
