@@ -106,8 +106,7 @@ class CommandHandlers:
                 "• Phrases: support* engineer* (adjacent words)\n"
                 "• AND: python+django (advanced - both required)\n\n"
                 "💡 Logic: (ALL required) AND (at least one optional)\n"
-                "✨ No quotes needed - just use commas!\n\n"
-                "👇 Tap the button below to fill the command:"
+                "👇 Tap the button below to use the command:"
             )
             
             from utils.helpers import create_keywords_help_keyboard

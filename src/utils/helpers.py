@@ -30,7 +30,7 @@ def create_keywords_help_keyboard():
 def create_ignore_keywords_help_keyboard():
     """Create keyboard for ignore keywords help with pre-fill, clear, and back buttons"""
     keyboard = [
-        [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
+        [InlineKeyboardButton("🚫 Set Ignore Keywords", 
                             switch_inline_query_current_chat="/ignore_keywords ")],
         [InlineKeyboardButton("🗑️ Clear Ignore Keywords", callback_data="clear_ignore_keywords")],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
@@ -67,9 +67,9 @@ def get_help_text():
         "For support, questions, or feedback, contact the admin mentioned in the bot description. We're here to help! 😊\n\n"
         "🚀 How it works:\n"
         "1. Set your keywords with the types you want\n"
-        "2. Bot monitors configured channels for job posts\n"
-        "3. Matching jobs are forwarded to you instantly\n"
-        "4. Use ignore keywords to filter out unwanted posts"
+        "2. Use ignore keywords to filter out unwanted posts\n"
+        "3. Bot monitors configured channels for job posts\n"
+        "4. Matching jobs are forwarded to you instantly"
     )
 
 def get_keywords_help():
@@ -85,8 +85,7 @@ def get_keywords_help():
         "• Wildcard: develop*, engineer* (matches variations)\n"
         "• Phrases: support* engineer* (adjacent words)\n"
         "• AND: python+django (advanced - both required)\n\n"
-        "💡 Logic: (ALL required) AND (at least one optional)\n"
-        "✨ No quotes needed - just use commas!"
+        "💡 Logic: (ALL required) AND (at least one optional)"
     )
 
 def get_ignore_help():
