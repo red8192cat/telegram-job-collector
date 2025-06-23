@@ -19,18 +19,20 @@ def create_back_menu():
     return InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]])
 
 def create_keywords_help_keyboard():
-    """Create keyboard for keywords help with pre-fill button"""
+    """Create keyboard for keywords help with pre-fill button and back button"""
     keyboard = [
         [InlineKeyboardButton("📝 Fill /keywords", 
-                            switch_inline_query_current_chat="/keywords ")]
+                            switch_inline_query_current_chat="/keywords ")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def create_ignore_keywords_help_keyboard():
-    """Create keyboard for ignore keywords help with pre-fill button"""
+    """Create keyboard for ignore keywords help with pre-fill button and back button"""
     keyboard = [
         [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
-                            switch_inline_query_current_chat="/ignore_keywords ")]
+                            switch_inline_query_current_chat="/ignore_keywords ")],
+        [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
