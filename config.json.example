@@ -3,5 +3,16 @@
     "@example_jobs_channel",
     "@another_hiring_channel",
     "-1001234567890"
+  ],
+  "user_monitored_channels": [
+    "@jobs",
+    "@remotework",
+    "@startupjobs",
+    "@techjobs",
+    "@devjobs",
+    "@pythonJobs",
+    "@reactjobs",
+    "@europejobs",
+    "@usajobs"
   ]
 }

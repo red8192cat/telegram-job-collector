@@ -4,6 +4,11 @@ services:
     container_name: job-collector-bot
     environment:
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - API_ID=${API_ID:-}
+      - API_HASH=${API_HASH:-}
+      - PHONE_NUMBER=${PHONE_NUMBER:-}
+      - AUTHORIZED_ADMIN_ID=${AUTHORIZED_ADMIN_ID:-}
+      - SESSION_NAME=user_monitor
       - DATABASE_PATH=/app/data/bot.db
       - LOG_LEVEL=INFO
     volumes:
