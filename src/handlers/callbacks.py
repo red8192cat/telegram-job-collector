@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import create_main_menu, create_back_menu, get_help_text
+from utils.helpers import create_main_menu, create_back_menu, get_help_text, create_ignore_keywords_help_keyboard
 
 logger = logging.getLogger(__name__)
 
