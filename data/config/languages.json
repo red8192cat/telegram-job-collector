@@ -1,0 +1,155 @@
+{
+  "default_language": "en",
+  "supported_languages": {
+    "en": {
+      "name": "English",
+      "flag": "🇺🇸"
+    },
+    "ru": {
+      "name": "Русский",
+      "flag": "🇷🇺"
+    }
+  },
+  "translations": {
+    "welcome_message": {
+      "en": "🤖 Welcome to JobFinderBot!\n\nI help you collect job postings from some channels based on your keywords.\n\n✅ Advanced keyword filtering\n✅ Ignore unwanted posts\n⏰ Real-time alerts for NEW jobs only (no old posts!)\n\nUse the menu below to get started:",
+      "ru": "🤖 Добро пожаловать в JobFinderBot!\n\nЯ помогаю собирать объявления о работе из каналов на основе ваших ключевых слов.\n\n✅ Продвинутая фильтрация по ключевым словам\n✅ Игнорирование нежелательных постов\n⏰ Уведомления в реальном времени только о НОВЫХ вакансиях!\n\nИспользуйте меню ниже, чтобы начать:"
+    },
+    "language_selection_title": {
+      "en": "🌐 Choose Your Language",
+      "ru": "🌐 Выберите ваш язык"
+    },
+    "language_selection_message": {
+      "en": "Please choose your preferred language:\n\nВыберите предпочитаемый язык:",
+      "ru": "Пожалуйста, выберите предпочитаемый язык:\n\nPlease choose your preferred language:"
+    },
+    "language_changed": {
+      "en": "✅ Language changed to English!\n\nAll messages will now be displayed in English.",
+      "ru": "✅ Язык изменен на русский!\n\nВсе сообщения теперь будут отображаться на русском языке."
+    },
+    "button_set_keywords": {
+      "en": "🎯 Set Keywords",
+      "ru": "🎯 Установить ключевые слова"
+    },
+    "button_set_ignore": {
+      "en": "🚫 Set Ignore Keywords",
+      "ru": "🚫 Установить игнорируемые слова"
+    },
+    "button_my_settings": {
+      "en": "⚙️ My Settings",
+      "ru": "⚙️ Мои настройки"
+    },
+    "button_help": {
+      "en": "❓ Help & Contact",
+      "ru": "❓ Помощь и контакты"
+    },
+    "button_language": {
+      "en": "🌐 Language",
+      "ru": "🌐 Язык"
+    },
+    "button_back": {
+      "en": "🔙 Back to Menu",
+      "ru": "🔙 Назад в меню"
+    },
+    "button_fill_keywords": {
+      "en": "📝 Fill /keywords",
+      "ru": "📝 Заполнить /keywords"
+    },
+    "button_set_ignore_keywords": {
+      "en": "🚫 Set Ignore Keywords",
+      "ru": "🚫 Установить игнорируемые слова"
+    },
+    "button_clear_ignore": {
+      "en": "🗑️ Clear Ignore Keywords",
+      "ru": "🗑️ Очистить игнорируемые слова"
+    },
+    "keywords_help_title": {
+      "en": "🎯 Set Keywords",
+      "ru": "🎯 Установка ключевых слов"
+    },
+    "keywords_help_text": {
+      "en": "Use commas to separate keywords:\n/keywords [remote*|online*], python, develop*, support* engineer*\n\nTypes:\n• Required: [remote*] (MUST be in every message)\n• Required OR: [remote*|online*] (either must be present)\n• Exact: python, java, linux\n• Wildcard: develop*, engineer* (matches variations)\n• Phrases: support* engineer* (adjacent words)\n• AND: python+django (advanced - both required)\n\n💡 Logic: (ALL required) AND (at least one optional)\n✨ No quotes needed - just use commas!\n\n👇 Tap the button below to fill the command:",
+      "ru": "Используйте запятые для разделения ключевых слов:\n/keywords [remote*|online*], python, develop*, support* engineer*\n\nТипы:\n• Обязательные: [remote*] (ДОЛЖНЫ быть в каждом сообщении)\n• Обязательные ИЛИ: [remote*|online*] (одно из них должно присутствовать)\n• Точные: python, java, linux\n• С маской: develop*, engineer* (совпадают варианты)\n• Фразы: support* engineer* (соседние слова)\n• И: python+django (продвинутый - оба обязательны)\n\n💡 Логика: (ВСЕ обязательные) И (хотя бы одно опциональное)\n✨ Кавычки не нужны - просто используйте запятые!\n\n👇 Нажмите кнопку ниже, чтобы заполнить команду:"
+    },
+    "ignore_help_title": {
+      "en": "🚫 Set Ignore Keywords",
+      "ru": "🚫 Установка игнорируемых слов"
+    },
+    "ignore_help_text": {
+      "en": "Use commas to separate ignore keywords:\n/ignore_keywords javascript*, manage*, senior*\n\nSame rules as regular keywords:\n• Exact: java, php, manager\n• Wildcard: manage*, senior*, lead*\n• Phrases: team* lead*, project* manager*\n\nThese will block job posts even if they match your keywords.\n\n🗑️ Use /purge_ignore to clear all ignore keywords\n\n👇 Tap the button below to fill the command:",
+      "ru": "Используйте запятые для разделения игнорируемых слов:\n/ignore_keywords javascript*, manage*, senior*\n\nТе же правила, что и для обычных ключевых слов:\n• Точные: java, php, manager\n• С маской: manage*, senior*, lead*\n• Фразы: team* lead*, project* manager*\n\nЭти слова будут блокировать вакансии, даже если они соответствуют вашим ключевым словам.\n\n🗑️ Используйте /purge_ignore для очистки всех игнорируемых слов\n\n👇 Нажмите кнопку ниже, чтобы заполнить команду:"
+    },
+    "keywords_success": {
+      "en": "✅ Keywords set: {keywords}\n\n🎯 I'm now monitoring for NEW jobs that match these keywords!\n⏰ Only fresh posts from now on - no old jobs will be sent.\n\n💡 Matching jobs will be forwarded instantly as they're posted in monitored channels.",
+      "ru": "✅ Ключевые слова установлены: {keywords}\n\n🎯 Теперь я отслеживаю НОВЫЕ вакансии, соответствующие этим ключевым словам!\n⏰ Только свежие посты - старые вакансии отправляться не будут.\n\n💡 Подходящие вакансии будут пересылаться мгновенно при их публикации в отслеживаемых каналах."
+    },
+    "keywords_no_valid": {
+      "en": "No valid keywords provided!",
+      "ru": "Не предоставлено действительных ключевых слов!"
+    },
+    "ignore_keywords_success": {
+      "en": "✅ Ignore keywords set: {keywords}\n\n🚫 Jobs containing these terms will be blocked from now on.\n⏰ This applies to all NEW job posts going forward.\n\n💡 Even if a job matches your keywords, it won't be forwarded if it contains these ignore terms.",
+      "ru": "✅ Игнорируемые слова установлены: {keywords}\n\n🚫 Вакансии, содержащие эти термины, будут заблокированы.\n⏰ Это применяется ко всем НОВЫМ вакансиям.\n\n💡 Даже если вакансия соответствует вашим ключевым словам, она не будет переслана, если содержит игнорируемые термины."
+    },
+    "ignore_keywords_no_valid": {
+      "en": "No valid ignore keywords provided!",
+      "ru": "Не предоставлено действительных игнорируемых слов!"
+    },
+    "settings_title": {
+      "en": "⚙️ Your Current Settings",
+      "ru": "⚙️ Ваши текущие настройки"
+    },
+    "settings_keywords": {
+      "en": "📝 Keywords: {keywords}",
+      "ru": "📝 Ключевые слова: {keywords}"
+    },
+    "settings_keywords_none": {
+      "en": "📝 Keywords: None set\nUse /keywords to set them.",
+      "ru": "📝 Ключевые слова: Не установлены\nИспользуйте /keywords для их установки."
+    },
+    "settings_ignore_keywords": {
+      "en": "🚫 Ignore Keywords: {keywords}",
+      "ru": "🚫 Игнорируемые слова: {keywords}"
+    },
+    "settings_ignore_keywords_none": {
+      "en": "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.",
+      "ru": "🚫 Игнорируемые слова: Не установлены\nИспользуйте /ignore_keywords для их установки."
+    },
+    "settings_status_monitoring": {
+      "en": "🎯 Status: Monitoring for NEW jobs that match your keywords\n⏰ Only fresh posts are forwarded - no old jobs",
+      "ru": "🎯 Статус: Отслеживание НОВЫХ вакансий, соответствующих вашим ключевым словам\n⏰ Пересылаются только свежие посты - без старых вакансий"
+    },
+    "settings_quick_commands": {
+      "en": "💡 Quick Commands:\n• /keywords - Update search keywords\n• /ignore_keywords - Update ignore keywords\n• /purge_ignore - Clear all ignore keywords",
+      "ru": "💡 Быстрые команды:\n• /keywords - Обновить ключевые слова поиска\n• /ignore_keywords - Обновить игнорируемые слова\n• /purge_ignore - Очистить все игнорируемые слова"
+    },
+    "ignore_cleared_success": {
+      "en": "✅ All ignore keywords cleared!\n\n🎯 Your keyword filtering is now based only on your main keywords.\n⏰ This change applies to all NEW jobs going forward.",
+      "ru": "✅ Все игнорируемые слова очищены!\n\n🎯 Фильтрация по ключевым словам теперь основана только на ваших основных ключевых словах.\n⏰ Это изменение применяется ко всем НОВЫМ вакансиям."
+    },
+    "ignore_cleared_none": {
+      "en": "ℹ️ No ignore keywords found\n\nYou don't have any ignore keywords set to clear.",
+      "ru": "ℹ️ Игнорируемые слова не найдены\n\nУ вас нет установленных игнорируемых слов для очистки."
+    },
+    "ignore_purge_success": {
+      "en": "✅ All ignore keywords cleared!\n\n🎯 Your keyword filtering is now based only on your main keywords.\n⏰ This change applies to all NEW jobs going forward.",
+      "ru": "✅ Все игнорируемые слова очищены!\n\n🎯 Фильтрация по ключевым словам теперь основана только на ваших основных ключевых словах.\n⏰ Это изменение применяется ко всем НОВЫМ вакансиям."
+    },
+    "ignore_purge_none": {
+      "en": "You don't have any ignore keywords set!",
+      "ru": "У вас нет установленных игнорируемых слов!"
+    },
+    "help_text": {
+      "en": "📋 Job Collector Bot Help\n\n🎯 Main Commands:\n• /start - Show main menu and welcome message\n• /keywords <list> - Set your search keywords (overwrites)\n• /ignore_keywords <list> - Set ignore keywords (overwrites)\n• /my_settings - Show your current keywords and ignore list\n• /purge_ignore - Clear all ignore keywords\n• /help - Show this help message\n\n💡 Keyword Types:\n• Required: [remote*], [remote*|online*] (MUST be in every message)\n• Exact: python, java, linux (exact words only)\n• Wildcard: develop*, engineer* (word variations)\n• Phrases: support* engineer*, senior* develop* (adjacent words)\n• AND: python+django (both required - advanced)\n\n📝 Examples:\n• /keywords [remote*|online*], python, develop*, support* engineer*\n• /ignore_keywords javascript*, manage*, senior*\n\n🎯 Logic: (ALL required) AND (at least one optional)\n✨ Tip: Use * for wildcards, exact words for precision (java vs javascript)\n\n💬 Need Help?\nFor support, questions, or feedback, contact the admin mentioned in the bot description. We're here to help! 😊\n\n🚀 How it works:\n1. Set your keywords with the types you want\n2. Use ignore keywords to filter out unwanted posts\n3. Bot monitors configured channels for job posts\n4. Matching jobs are forwarded to you instantly",
+      "ru": "📋 Помощь по боту сборщику вакансий\n\n🎯 Основные команды:\n• /start - Показать главное меню и приветственное сообщение\n• /keywords <список> - Установить ключевые слова поиска (перезаписывает)\n• /ignore_keywords <список> - Установить игнорируемые слова (перезаписывает)\n• /my_settings - Показать текущие ключевые слова и список игнорируемых\n• /purge_ignore - Очистить все игнорируемые слова\n• /help - Показать это сообщение помощи\n\n💡 Типы ключевых слов:\n• Обязательные: [remote*], [remote*|online*] (ДОЛЖНЫ быть в каждом сообщении)\n• Точные: python, java, linux (только точные слова)\n• С маской: develop*, engineer* (варианты слов)\n• Фразы: support* engineer*, senior* develop* (соседние слова)\n• И: python+django (оба обязательны - продвинутый)\n\n📝 Примеры:\n• /keywords [remote*|online*], python, develop*, support* engineer*\n• /ignore_keywords javascript*, manage*, senior*\n\n🎯 Логика: (ВСЕ обязательные) И (хотя бы одно опциональное)\n✨ Совет: Используйте * для масок, точные слова для точности (java vs javascript)\n\n💬 Нужна помощь?\nДля поддержки, вопросов или обратной связи обратитесь к администратору, указанному в описании бота. Мы здесь, чтобы помочь! 😊\n\n🚀 Как это работает:\n1. Установите ключевые слова с нужными типами\n2. Используйте игнорируемые слова для фильтрации нежелательных постов\n3. Бот отслеживает настроенные каналы на наличие вакансий\n4. Подходящие вакансии пересылаются вам мгновенно"
+    },
+    "error_occurred": {
+      "en": "❌ Something went wrong. Please try again.",
+      "ru": "❌ Что-то пошло не так. Пожалуйста, попробуйте еще раз."
+    },
+    "unknown_command": {
+      "en": "❓ Unknown command. Use /help to see available commands.",
+      "ru": "❓ Неизвестная команда. Используйте /help для просмотра доступных команд."
+    }
+  }
+}

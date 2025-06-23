@@ -1,5 +1,6 @@
 """
-Callback Handlers - Complete file with debugging
+Callback Handlers - Updated with multi-language support
+All user-facing messages are now translated based on user's language preference
 """
 
 import logging
@@ -7,7 +8,12 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import create_main_menu, create_back_menu, get_help_text, create_ignore_keywords_help_keyboard, create_keywords_help_keyboard
+from utils.helpers import (
+    create_main_menu, create_back_menu, create_ignore_keywords_help_keyboard, 
+    create_keywords_help_keyboard, create_language_selection_keyboard,
+    format_settings_message
+)
+from utils.translations import get_text, is_supported_language
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +24,7 @@ class CallbackHandlers:
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("Callback query handler registered")
+        logger.info("Callback query handler with multi-language support registered")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
@@ -26,128 +32,105 @@ class CallbackHandlers:
         if not query:
             return
             
-        logger.debug(f"Callback received: {query.data} from user {query.from_user.id}")
+        user_id = query.from_user.id
+        logger.debug(f"Callback received: {query.data} from user {user_id}")
+        
+        # Get user's language preference
+        language = await self.data_manager.get_user_language(user_id)
         
         try:
             await query.answer()
             
-            if query.data == "menu_keywords":
-                # Send same instruction message as bot menu command
-                help_text = (
-                    "🎯 Set Keywords\n\n"
-                    "Use commas to separate keywords:\n"
-                    "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
-                    "Types:\n"
-                    "• Required: [remote*] (MUST be in every message)\n"
-                    "• Required OR: [remote*|online*] (either must be present)\n"
-                    "• Exact: python, java, linux\n"
-                    "• Wildcard: develop*, engineer* (matches variations)\n"
-                    "• Phrases: support* engineer* (adjacent words)\n"
-                    "• AND: python+django (advanced - both required)\n\n"
-                    "💡 Logic: (ALL required) AND (at least one optional)\n"
-                    "✨ No quotes needed - just use commas!\n\n"
-                    "👇 Tap the button below to fill the command:"
-                )
+            # Language selection callbacks
+            if query.data.startswith("lang_"):
+                await self._handle_language_selection(query, context, language)
                 
-                await query.edit_message_text(help_text, reply_markup=create_keywords_help_keyboard())
+            elif query.data == "menu_keywords":
+                help_text = get_text("keywords_help_text", language)
+                await query.edit_message_text(help_text, reply_markup=create_keywords_help_keyboard(language))
                 
             elif query.data == "menu_ignore":
-                # Send same instruction message as bot menu command
-                help_text = (
-                    "🚫 Set Ignore Keywords\n\n"
-                    "Use commas to separate ignore keywords:\n"
-                    "/ignore_keywords javascript*, manage*, senior*\n\n"
-                    "Same rules as regular keywords:\n"
-                    "• Exact: java, php, manager\n"
-                    "• Wildcard: manage*, senior*, lead*\n"
-                    "• Phrases: team* lead*, project* manager*\n\n"
-                    "These will block job posts even if they match your keywords.\n\n"
-                    "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
-                    "👇 Tap the button below to fill the command:"
-                )
-                
-                await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
+                help_text = get_text("ignore_help_text", language)
+                await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard(language))
                 
             elif query.data == "clear_ignore_keywords":
-                # Handle clear ignore keywords action
-                logger.debug(f"Clear ignore keywords requested by user {query.from_user.id}")
-                chat_id = query.from_user.id
-                
-                try:
-                    result = await self.data_manager.purge_user_ignore_keywords(chat_id)
-                    logger.debug(f"Purge ignore keywords result: {result}")
-                    
-                    if result:
-                        success_message = (
-                            "✅ All ignore keywords cleared!\n\n"
-                            "🎯 Your keyword filtering is now based only on your main keywords.\n"
-                            "⏰ This change applies to all NEW jobs going forward."
-                        )
-                        await query.edit_message_text(success_message, reply_markup=create_back_menu())
-                    else:
-                        no_keywords_message = (
-                            "ℹ️ No ignore keywords found\n\n"
-                            "You don't have any ignore keywords set to clear."
-                        )
-                        await query.edit_message_text(no_keywords_message, reply_markup=create_back_menu())
-                except Exception as e:
-                    logger.error(f"Error clearing ignore keywords: {e}")
-                    await query.edit_message_text(
-                        "❌ Error clearing ignore keywords. Please try again.", 
-                        reply_markup=create_back_menu()
-                    )
+                await self._handle_clear_ignore_keywords(query, context, language)
                 
             elif query.data == "menu_show_settings":
-                chat_id = query.from_user.id
-                
-                # Get both keywords and ignore keywords
-                keywords = await self.data_manager.get_user_keywords(chat_id)
-                ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
-                
-                # Build combined message - same as /my_settings command
-                msg = "⚙️ Your Current Settings\n\n"
-                
-                if keywords:
-                    msg += f"📝 Keywords: {', '.join(keywords)}\n\n"
-                else:
-                    msg += "📝 Keywords: None set\nUse /keywords to set them.\n\n"
-                
-                if ignore_keywords:
-                    msg += f"🚫 Ignore Keywords: {', '.join(ignore_keywords)}\n\n"
-                else:
-                    msg += "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.\n\n"
-                
-                # Add status information
-                if keywords:
-                    msg += "🎯 Status: Monitoring for NEW jobs that match your keywords\n"
-                    msg += "⏰ Only fresh posts are forwarded - no old jobs\n\n"
-                
-                msg += "💡 Quick Commands:\n"
-                msg += "• /keywords - Update search keywords\n"
-                msg += "• /ignore_keywords - Update ignore keywords\n"
-                msg += "• /purge_ignore - Clear all ignore keywords"
-                
-                await query.edit_message_text(msg, reply_markup=create_back_menu())
+                await self._handle_show_settings(query, context, language)
                 
             elif query.data == "menu_help":
-                await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
+                help_text = get_text("help_text", language)
+                await query.edit_message_text(help_text, reply_markup=create_back_menu(language))
+                
+            elif query.data == "menu_language":
+                # Show language selection
+                title = get_text("language_selection_title", language)
+                await query.edit_message_text(title, reply_markup=create_language_selection_keyboard())
                 
             elif query.data == "menu_back":
-                # Back button shows the /start message with menu
-                welcome_msg = (
-                    "🤖 Welcome to JobFinderBot!\n\n"
-                    "I help you collect job postings from some channels based on your keywords.\n\n"
-                    "✅ Advanced keyword filtering\n"
-                    "✅ Ignore unwanted posts\n"
-                    "⏰ Real-time alerts for NEW jobs only (no old posts!)\n\n"
-                    "Use the menu below to get started:"
-                )
-                await query.edit_message_text(welcome_msg, reply_markup=create_main_menu())
+                # Back to main menu
+                welcome_msg = get_text("welcome_message", language)
+                await query.edit_message_text(welcome_msg, reply_markup=create_main_menu(language))
                 
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")
             # Try to answer the callback to prevent loading state
             try:
-                await query.answer("❌ Something went wrong. Please try again.")
+                error_msg = get_text("error_occurred", language)
+                await query.answer(error_msg)
             except:
                 pass
+    
+    async def _handle_language_selection(self, query, context, current_language):
+        """Handle language selection from callback"""
+        # Extract language code from callback data
+        selected_language = query.data.replace("lang_", "")
+        
+        if not is_supported_language(selected_language):
+            logger.warning(f"Unsupported language selected: {selected_language}")
+            return
+        
+        user_id = query.from_user.id
+        
+        # Update user's language preference
+        await self.data_manager.set_user_language(user_id, selected_language)
+        
+        # Send confirmation message in the NEW language
+        success_msg = get_text("language_changed", selected_language)
+        await query.edit_message_text(success_msg, reply_markup=create_back_menu(selected_language))
+        
+        logger.info(f"User {user_id} changed language to {selected_language}")
+    
+    async def _handle_clear_ignore_keywords(self, query, context, language):
+        """Handle clear ignore keywords action"""
+        user_id = query.from_user.id
+        logger.debug(f"Clear ignore keywords requested by user {user_id}")
+        
+        try:
+            result = await self.data_manager.purge_user_ignore_keywords(user_id)
+            logger.debug(f"Purge ignore keywords result: {result}")
+            
+            if result:
+                success_message = get_text("ignore_cleared_success", language)
+                await query.edit_message_text(success_message, reply_markup=create_back_menu(language))
+            else:
+                no_keywords_message = get_text("ignore_cleared_none", language)
+                await query.edit_message_text(no_keywords_message, reply_markup=create_back_menu(language))
+                
+        except Exception as e:
+            logger.error(f"Error clearing ignore keywords: {e}")
+            error_msg = get_text("error_occurred", language)
+            await query.edit_message_text(error_msg, reply_markup=create_back_menu(language))
+    
+    async def _handle_show_settings(self, query, context, language):
+        """Handle show settings action"""
+        user_id = query.from_user.id
+        
+        # Get both keywords and ignore keywords
+        keywords = await self.data_manager.get_user_keywords(user_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_id)
+        
+        # Use helper to format message
+        msg = format_settings_message(keywords, ignore_keywords, language)
+        await query.edit_message_text(msg, reply_markup=create_back_menu(language))
