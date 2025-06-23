@@ -98,8 +98,8 @@ class JobCollectorBot:
         # Optionally start user monitor extension
         if self.user_monitor:
             self.user_monitor.bot_instance = self.app.bot
-                # Store user_monitor in bot_data for handlers to access
-                self.app.bot_data["user_monitor"] = self.user_monitor
+            # Store user_monitor in bot_data for handlers to access
+            self.app.bot_data["user_monitor"] = self.user_monitor
             
             try:
                 success = await self.user_monitor.initialize()
@@ -160,7 +160,7 @@ class JobCollectorBot:
             BotCommand("delete_keyword_from_list", "➖ Remove a keyword"),
             BotCommand("delete_ignore_keyword", "➖ Remove ignore keyword"),
             BotCommand("purge_ignore", "🗑️ Clear all ignore keywords"),
-            BotCommand("help", "❓ Show help and examples")
+            BotCommand("help", "❓ Show help and examples"),
             BotCommand("auth_status", "🔐 Check authentication status"),
             BotCommand("auth_restart", "🔄 Restart authentication"),
         ]
