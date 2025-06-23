@@ -22,6 +22,8 @@ class MessageHandlers:
         self.keyword_matcher = KeywordMatcher()
     
     def register(self, app):
+        # Authentication message handler (highest priority)
+        app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, self.handle_potential_auth_message), group=0)
         """Register message handlers"""
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_channel_message))
         logger.info("Message handlers registered")
@@ -128,3 +130,29 @@ class MessageHandlers:
                 logger.error(f"Error processing channel {channel}: {e}")
         
         logger.info("Manual job collection completed")
+
+    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle potential authentication messages"""
+        if not update.message or not update.message.text or update.message.chat.type != 'private':
+            return False
+        
+        user_monitor = getattr(context.bot_data, 'user_monitor', None)
+        if not user_monitor or not user_monitor.is_waiting_for_auth():
+            return False
+        
+        user_id = update.effective_user.id
+        message_text = update.message.text
+        
+        # Handle authentication message
+        handled = await user_monitor.handle_auth_message(user_id, message_text)
+        return handled
+
+    async def handle_potential_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle potential authentication messages first"""
+        # Try auth message handling first
+        auth_handled = await self.handle_auth_message(update, context)
+        if auth_handled:
+            return  # Stop processing if it was an auth message
+        
+        # Continue with normal private message handling if needed
+        pass

@@ -16,6 +16,8 @@ class CommandHandlers:
         self.data_manager = data_manager
     
     def register(self, app):
+        app.add_handler(CommandHandler("auth_status", self.auth_status_command))
+        app.add_handler(CommandHandler("auth_restart", self.auth_restart_command))
         """Register all command handlers"""
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("menu", self.menu_command))
