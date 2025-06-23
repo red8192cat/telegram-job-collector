@@ -1,5 +1,5 @@
 """
-Command Handlers - Simplified version with merged settings command
+Command Handlers - Enhanced version with clear success messages and timing expectations
 """
 
 import logging
@@ -31,10 +31,9 @@ class CommandHandlers:
         return user_id == self._admin_id
     
     def register(self, app):
-        """Register simplified command handlers with merged settings"""
+        """Register simplified command handlers - NO /menu command"""
         # Essential user commands
         app.add_handler(CommandHandler("start", self.start_command))
-        app.add_handler(CommandHandler("menu", self.menu_command))
         app.add_handler(CommandHandler("help", self.help_command))
         app.add_handler(CommandHandler("keywords", self.set_keywords_command))
         app.add_handler(CommandHandler("ignore_keywords", self.set_ignore_keywords_command))
@@ -52,34 +51,32 @@ class CommandHandlers:
             self.handle_auth_message
         ), group=10)
         
-        logger.info("Simplified command handlers with merged settings registered successfully")
+        # Handler for messages that start with @bot_name (from inline queries)
+        app.add_handler(MessageHandler(
+            filters.TEXT & filters.ChatType.PRIVATE,
+            self.handle_bot_mention_message
+        ), group=20)
+        
+        logger.info("Enhanced command handlers registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /start command"""
+        """Handle /start command with interactive menu"""
         if not is_private_chat(update):
             return
         
         logger.info(f"Start command from user {update.effective_user.id}")
         
         welcome_msg = (
-            "🤖 Welcome to Job Collector Bot!\n\n"
-            "I help you collect job postings from configured channels based on your keywords.\n\n"
-            "✅ Unlimited job forwards\n"
+            "🤖 Welcome to JobFinderBot!\n\n"
+            "I help you collect job postings from some channels based on your keywords.\n\n"
             "✅ Advanced keyword filtering\n"
-            "✅ Ignore unwanted posts\n\n"
+            "✅ Ignore unwanted posts\n"
+            "⏰ Real-time alerts for NEW jobs only (no old posts!)\n\n"
             "Use the menu below to get started:"
         )
         
         menu_markup = create_main_menu()
         await update.message.reply_text(welcome_msg, reply_markup=menu_markup)
-    
-    async def menu_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /menu command"""
-        if not is_private_chat(update):
-            return
-        
-        menu_markup = create_main_menu()
-        await update.message.reply_text("📋 Main Menu:", reply_markup=menu_markup)
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /help command"""
@@ -89,14 +86,32 @@ class CommandHandlers:
         await update.message.reply_text(get_help_text())
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command"""
+        """Handle /keywords command with enhanced success message"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text(get_set_keywords_help())
+            # Create help message with pre-fill button
+            help_text = (
+                "🎯 Set Keywords\n\n"
+                "Use commas to separate keywords:\n"
+                "/keywords [remote*|online*], python, develop*, support* engineer*\n\n"
+                "Types:\n"
+                "• Required: [remote*] (MUST be in every message)\n"
+                "• Required OR: [remote*|online*] (either must be present)\n"
+                "• Exact: python, java, linux\n"
+                "• Wildcard: develop*, engineer* (matches variations)\n"
+                "• Phrases: support* engineer* (adjacent words)\n"
+                "• AND: python+django (advanced - both required)\n\n"
+                "💡 Logic: (ALL required) AND (at least one optional)\n"
+                "✨ No quotes needed - just use commas!\n\n"
+                "👇 Tap the button below to fill the command:"
+            )
+            
+            from utils.helpers import create_keywords_help_keyboard
+            await update.message.reply_text(help_text, reply_markup=create_keywords_help_keyboard())
             return
         
         keywords_text = ' '.join(context.args)
@@ -115,18 +130,41 @@ class CommandHandlers:
         
         await self.data_manager.set_user_keywords(chat_id, keywords)
         
+        # Enhanced success message with timing clarification
         keywords_str = ', '.join(keywords)
-        await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
+        success_message = (
+            f"✅ Keywords set: {keywords_str}\n\n"
+            f"🎯 I'm now monitoring for NEW jobs that match these keywords!\n"
+            f"⏰ Only fresh posts from now on - no old jobs will be sent.\n\n"
+            f"💡 Matching jobs will be forwarded instantly as they're posted in monitored channels."
+        )
+        
+        await update.message.reply_text(success_message)
     
     async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ignore_keywords command"""
+        """Handle /ignore_keywords command with enhanced success message"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide ignore keywords:\n/ignore_keywords java*, senior*, manage*")
+            # Create help message with pre-fill button
+            help_text = (
+                "🚫 Set Ignore Keywords\n\n"
+                "Use commas to separate ignore keywords:\n"
+                "/ignore_keywords javascript*, manage*, senior*\n\n"
+                "Same rules as regular keywords:\n"
+                "• Exact: java, php, manager\n"
+                "• Wildcard: manage*, senior*, lead*\n"
+                "• Phrases: team* lead*, project* manager*\n\n"
+                "These will block job posts even if they match your keywords.\n\n"
+                "🗑️ Use /purge_ignore to clear all ignore keywords\n\n"
+                "👇 Tap the button below to fill the command:"
+            )
+            
+            from utils.helpers import create_ignore_keywords_help_keyboard
+            await update.message.reply_text(help_text, reply_markup=create_ignore_keywords_help_keyboard())
             return
         
         keywords_text = ' '.join(context.args)
@@ -145,8 +183,16 @@ class CommandHandlers:
         
         await self.data_manager.set_user_ignore_keywords(chat_id, keywords)
         
+        # Enhanced success message for ignore keywords
         keywords_str = ', '.join(keywords)
-        await update.message.reply_text(f"✅ Ignore keywords set: {keywords_str}")
+        success_message = (
+            f"✅ Ignore keywords set: {keywords_str}\n\n"
+            f"🚫 Jobs containing these terms will be blocked from now on.\n"
+            f"⏰ This applies to all NEW job posts going forward.\n\n"
+            f"💡 Even if a job matches your keywords, it won't be forwarded if it contains these ignore terms."
+        )
+        
+        await update.message.reply_text(success_message)
     
     async def show_settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /my_settings command - shows both keywords and ignore keywords"""
@@ -170,6 +216,11 @@ class CommandHandlers:
         else:
             msg += "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.\n\n"
         
+        # Add status information
+        if keywords:
+            msg += "🎯 Status: Monitoring for NEW jobs that match your keywords\n"
+            msg += "⏰ Only fresh posts are forwarded - no old jobs\n\n"
+        
         msg += "💡 Quick Commands:\n"
         msg += "• /keywords - Update search keywords\n"
         msg += "• /ignore_keywords - Update ignore keywords\n"
@@ -178,14 +229,19 @@ class CommandHandlers:
         await update.message.reply_text(msg)
     
     async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /purge_ignore command"""
+        """Handle /purge_ignore command with enhanced confirmation"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if await self.data_manager.purge_user_ignore_keywords(chat_id):
-            await update.message.reply_text("✅ All ignore keywords cleared!")
+            success_message = (
+                "✅ All ignore keywords cleared!\n\n"
+                "🎯 Your keyword filtering is now based only on your main keywords.\n"
+                "⏰ This change applies to all NEW jobs going forward."
+            )
+            await update.message.reply_text(success_message)
         else:
             await update.message.reply_text("You don't have any ignore keywords set!")
     
@@ -213,6 +269,44 @@ class CommandHandlers:
                     await update.message.delete()
                 except Exception:
                     pass  # Ignore deletion errors
+    
+    async def handle_bot_mention_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle messages that start with @bot_name from inline queries"""
+        if not is_private_chat(update) or not update.message:
+            return
+        
+        message_text = update.message.text
+        if not message_text:
+            return
+        
+        # Check if message starts with @bot_name and extract the command
+        bot_username = context.bot.username
+        if message_text.startswith(f"@{bot_username}"):
+            # Remove @bot_name and any extra spaces
+            clean_text = message_text.replace(f"@{bot_username}", "").strip()
+            
+            # Check if it's a command we handle
+            if clean_text.startswith("/keywords"):
+                # Extract arguments
+                args_text = clean_text.replace("/keywords", "").strip()
+                if args_text:
+                    # Create a fake context with args
+                    context.args = args_text.split()
+                    await self.set_keywords_command(update, context)
+                else:
+                    # No args, show help
+                    context.args = []
+                    await self.set_keywords_command(update, context)
+                    
+            elif clean_text.startswith("/ignore_keywords"):
+                # Extract arguments  
+                args_text = clean_text.replace("/ignore_keywords", "").strip()
+                if args_text:
+                    context.args = args_text.split()
+                    await self.set_ignore_keywords_command(update, context)
+                else:
+                    context.args = []
+                    await self.set_ignore_keywords_command(update, context)
     
     # ADMIN COMMANDS
     async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
