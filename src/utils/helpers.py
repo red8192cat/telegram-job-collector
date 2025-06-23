@@ -5,12 +5,10 @@ Helper utilities - Direct command pre-fill from main menu
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 def create_main_menu():
-    """Create main menu with direct command pre-fill"""
+    """Create main menu with callback buttons (not direct pre-fill)"""
     keyboard = [
-        [InlineKeyboardButton("🎯 Set Keywords", 
-                            switch_inline_query_current_chat="/keywords ")],
-        [InlineKeyboardButton("🚫 Set Ignore Keywords", 
-                            switch_inline_query_current_chat="/ignore_keywords ")],
+        [InlineKeyboardButton("🎯 Set Keywords", callback_data="menu_keywords")],
+        [InlineKeyboardButton("🚫 Set Ignore Keywords", callback_data="menu_ignore")],
         [InlineKeyboardButton("⚙️ My Settings", callback_data="menu_show_settings")],
         [InlineKeyboardButton("❓ Help & Contact", callback_data="menu_help")]
     ]
