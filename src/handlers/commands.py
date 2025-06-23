@@ -449,26 +449,26 @@ class CommandHandlers:
             channels = await self.data_manager.get_all_monitored_channels_db()
             
             if not channels:
-                await update.message.reply_text("📭 **No channels configured**\n\nUse `/admin add_user_channel @channel` to add channels.")
+                await update.message.reply_text("📭 No channels configured\n\nUse /admin add_user_channel @channel to add channels.")
                 return
             
             bot_channels = [ch['identifier'] for ch in channels if ch['type'] == 'bot']
             user_channels = [ch['identifier'] for ch in channels if ch['type'] == 'user']
             
-            message = "📺 **Monitored Channels**\n\n"
+            message = "📺 Monitored Channels\n\n"
             
             if bot_channels:
-                message += f"**Bot Channels ({len(bot_channels)}):**\n"
+                message += f"Bot Channels ({len(bot_channels)}):\n"
                 for channel in bot_channels:
                     message += f"• {channel}\n"
                 message += "\n"
             
             if user_channels:
-                message += f"**User Channels ({len(user_channels)}):**\n"
+                message += f"User Channels ({len(user_channels)}):\n"
                 for channel in user_channels:
                     message += f"• {channel}\n"
             
-            await update.message.reply_text(message, parse_mode='Markdown')
+            await update.message.reply_text(message)
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error getting channels: {str(e)}")
@@ -476,7 +476,7 @@ class CommandHandlers:
     async def admin_add_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin add_user_channel command"""
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: `/admin add_user_channel @channel`", parse_mode='Markdown')
+            await update.message.reply_text("Usage: /admin add_user_channel @channel")
             return
         
         channel_identifier = context.args[1]
@@ -501,7 +501,7 @@ class CommandHandlers:
     async def admin_remove_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin remove_user_channel command"""
         if len(context.args) < 2:
-            await update.message.reply_text("Usage: `/admin remove_user_channel @channel`", parse_mode='Markdown')
+            await update.message.reply_text("Usage: /admin remove_user_channel @channel")
             return
         
         channel_identifier = context.args[1]
@@ -524,7 +524,7 @@ class CommandHandlers:
             user_monitor = context.bot_data.get('user_monitor', None)
             if user_monitor:
                 await user_monitor._export_config()
-                await update.message.reply_text("✅ **Config exported**\n\nDatabase channels saved to config.json", parse_mode='Markdown')
+                await update.message.reply_text("✅ Config exported\n\nDatabase channels saved to config.json")
             else:
                 await update.message.reply_text("❌ User monitor not available for config export.")
             
