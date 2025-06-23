@@ -150,30 +150,6 @@
     "unknown_command": {
       "en": "❓ Unknown command. Use /help to see available commands.",
       "ru": "❓ Неизвестная команда. Используйте /help для просмотра доступных команд."
-    },
-    "menu_command_start": {
-      "en": "🚀 Show main menu",
-      "ru": "🚀 Показать главное меню"
-    },
-    "menu_command_keywords": {
-      "en": "🎯 Set search keywords",
-      "ru": "🎯 Установить ключевые слова"
-    },
-    "menu_command_ignore": {
-      "en": "🚫 Set ignore keywords",
-      "ru": "🚫 Установить игнорируемые слова"
-    },
-    "menu_command_settings": {
-      "en": "⚙️ Show current settings",
-      "ru": "⚙️ Показать текущие настройки"
-    },
-    "menu_command_purge": {
-      "en": "🗑️ Clear all ignore keywords",
-      "ru": "🗑️ Очистить все игнорируемые слова"
-    },
-    "menu_command_help": {
-      "en": "❓ Show help",
-      "ru": "❓ Показать помощь"
     }
   }
 }
