@@ -360,6 +360,12 @@ class UserAccountMonitor:
             return
         
         chat_id = event.chat_id
+        
+        # 🔥 DEBUG: Show what we're comparing
+        logger.info(f"🔥 EVENT DEBUG: Event chat_id: {chat_id}")
+        logger.info(f"🔥 EVENT DEBUG: Monitored entity IDs: {list(self.monitored_entities.keys())}")
+        logger.info(f"🔥 EVENT DEBUG: Chat ID in monitored entities: {chat_id in self.monitored_entities}")
+        
         if chat_id not in self.monitored_entities:
             logger.info(f"🔥 EVENT DEBUG: Message from unmonitored chat {chat_id}, ignoring")
             return
@@ -368,30 +374,43 @@ class UserAccountMonitor:
         logger.info(f"🔥 EVENT DEBUG: Processing user-monitored message from: {channel_info['identifier']}")
         
         message_text = event.message.text
+        logger.info(f"🔥 EVENT DEBUG: Message text: '{message_text}'")
+        
         all_users = await self.data_manager.get_all_users_with_keywords()
+        logger.info(f"🔥 EVENT DEBUG: Found {len(all_users)} users with keywords")
         
         forwarded_count = 0
         for user_chat_id, keywords in all_users.items():
             if user_chat_id <= 0:
                 continue
             
+            logger.info(f"🔥 EVENT DEBUG: Checking user {user_chat_id} with keywords: {keywords}")
+            
             if not await self.data_manager.check_user_limit(user_chat_id):
+                logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} exceeded limit")
                 continue
             
-            if not self.keyword_matcher.matches_user_keywords(message_text, keywords):
+            keyword_match = self.keyword_matcher.matches_user_keywords(message_text, keywords)
+            logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} keyword match: {keyword_match}")
+            
+            if not keyword_match:
                 continue
             
             ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
-            if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
+            ignore_match = self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords)
+            logger.info(f"🔥 EVENT DEBUG: User {user_chat_id} ignore match: {ignore_match}")
+            
+            if ignore_match:
                 continue
             
             if self.bot_instance:
                 try:
+                    logger.info(f"🔥 EVENT DEBUG: Forwarding message to user {user_chat_id}")
                     await self.forward_message_via_bot(user_chat_id, event.message, chat_id)
                     forwarded_count += 1
                     await asyncio.sleep(0.5)
                 except Exception as e:
-                    logger.error(f"Failed to forward to user {user_chat_id}: {e}")
+                    logger.error(f"🔥 EVENT DEBUG: Failed to forward to user {user_chat_id}: {e}")
         
         if forwarded_count > 0:
             logger.info(f"🔥 EVENT DEBUG: User monitor forwarded message to {forwarded_count} users")
