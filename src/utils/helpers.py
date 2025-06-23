@@ -28,10 +28,11 @@ def create_keywords_help_keyboard():
     return InlineKeyboardMarkup(keyboard)
 
 def create_ignore_keywords_help_keyboard():
-    """Create keyboard for ignore keywords help with pre-fill button and back button"""
+    """Create keyboard for ignore keywords help with pre-fill, clear, and back buttons"""
     keyboard = [
         [InlineKeyboardButton("🚫 Fill /ignore_keywords", 
                             switch_inline_query_current_chat="/ignore_keywords ")],
+        [InlineKeyboardButton("🗑️ Clear Ignore Keywords", callback_data="clear_ignore")],
         [InlineKeyboardButton("🔙 Back to Menu", callback_data="menu_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
