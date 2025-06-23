@@ -1,0 +1,17 @@
+{
+  "channels": [
+    "@example_jobs_channel",
+    "@another_hiring_channel",
+    "-1001234567890"
+  ],
+  "user_monitored_channels": [
+    "@jobs",
+    "@remotework", 
+    "@startupjobs",
+    "@techjobs",
+    "@devjobs"
+  ],
+  "export_timestamp": "2025-01-01T00:00:00.000000",
+  "total_bot_channels": 3,
+  "total_user_channels": 5
+}
