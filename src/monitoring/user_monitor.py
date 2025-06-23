@@ -345,12 +345,12 @@ class UserAccountMonitor:
                 logger.error(f"⚙️ SYSTEM: Failed to get entity for {channel_identifier}: {e}")
     
     async def add_channel(self, channel_identifier: str):
-        """Add new channel to monitoring"""
+        """Add new channel to monitoring with auto-join"""
         if not self.enabled or not await self.client.is_user_authorized():
             return False, "User monitor not authenticated"
         
         try:
-            # Validate channel access
+            # Validate and get channel entity
             if channel_identifier.startswith('@'):
                 entity = await self.client.get_entity(channel_identifier)
             elif channel_identifier.startswith('-'):
@@ -358,10 +358,37 @@ class UserAccountMonitor:
             else:
                 entity = await self.client.get_entity(channel_identifier)
             
+            # Check if already in database
+            existing_channels = await self.data_manager.get_user_monitored_channels_db()
+            if channel_identifier in existing_channels:
+                return False, "Channel already exists in monitoring list"
+            
+            # Check if already joined
+            try:
+                # Try to get participants to check membership
+                participants = await self.client.get_participants(entity, limit=1)
+                me = await self.client.get_me()
+                is_already_joined = any(p.id == me.id for p in participants)
+                
+                if not is_already_joined:
+                    # Auto-join the channel
+                    from telethon.tl.functions.channels import JoinChannelRequest
+                    await self.client(JoinChannelRequest(entity))
+                    logger.info(f"⚙️ SYSTEM: Auto-joined channel: {channel_identifier}")
+                    join_status = "joined and monitoring"
+                else:
+                    logger.info(f"⚙️ SYSTEM: Already member of: {channel_identifier}")
+                    join_status = "already joined, now monitoring"
+                    
+            except Exception as join_error:
+                # If we can't join, fail completely
+                logger.error(f"⚙️ SYSTEM: Failed to join {channel_identifier}: {join_error}")
+                return False, f"❌ Cannot join channel: {str(join_error)}"
+            
             # Add to database
             success = await self.data_manager.add_channel_db(channel_identifier, 'user')
             if not success:
-                return False, "Channel already exists in database"
+                return False, "Failed to add channel to database"
             
             # Add to monitored entities
             self.monitored_entities[entity.id] = {
@@ -373,35 +400,61 @@ class UserAccountMonitor:
             await self._export_config()
             
             logger.info(f"⚙️ SYSTEM: Added user channel: {channel_identifier}")
-            return True, f"✅ Now monitoring {channel_identifier}"
+            return True, f"✅ Successfully {join_status}: {channel_identifier}"
             
         except Exception as e:
             logger.error(f"⚙️ SYSTEM: Failed to add channel {channel_identifier}: {e}")
             return False, f"❌ Cannot access channel: {str(e)}"
     
     async def remove_channel(self, channel_identifier: str):
-        """Remove channel from monitoring"""
+        """Remove channel from monitoring with auto-leave"""
         try:
+            # Check if in database
+            existing_channels = await self.data_manager.get_user_monitored_channels_db()
+            if channel_identifier not in existing_channels:
+                return False, "Channel not found in monitoring list"
+            
+            # Get entity and leave channel
+            leave_status = "stopped monitoring"
+            if self.enabled and await self.client.is_user_authorized():
+                try:
+                    if channel_identifier.startswith('@'):
+                        entity = await self.client.get_entity(channel_identifier)
+                    elif channel_identifier.startswith('-'):
+                        entity = await self.client.get_entity(int(channel_identifier))
+                    else:
+                        entity = await self.client.get_entity(channel_identifier)
+                    
+                    # Auto-leave the channel
+                    from telethon.tl.functions.channels import LeaveChannelRequest
+                    await self.client(LeaveChannelRequest(entity))
+                    logger.info(f"⚙️ SYSTEM: Auto-left channel: {channel_identifier}")
+                    leave_status = "left and stopped monitoring"
+                    
+                    # Remove from monitored entities
+                    entity_id_to_remove = None
+                    for entity_id, info in self.monitored_entities.items():
+                        if info['identifier'] == channel_identifier:
+                            entity_id_to_remove = entity_id
+                            break
+                    
+                    if entity_id_to_remove:
+                        del self.monitored_entities[entity_id_to_remove]
+                        
+                except Exception as leave_error:
+                    logger.warning(f"⚙️ SYSTEM: Could not leave {channel_identifier}: {leave_error}")
+                    leave_status = "stopped monitoring (could not leave channel)"
+            
             # Remove from database
             success = await self.data_manager.remove_channel_db(channel_identifier, 'user')
             if not success:
-                return False, "Channel not found in database"
-            
-            # Remove from monitored entities
-            entity_id_to_remove = None
-            for entity_id, info in self.monitored_entities.items():
-                if info['identifier'] == channel_identifier:
-                    entity_id_to_remove = entity_id
-                    break
-            
-            if entity_id_to_remove:
-                del self.monitored_entities[entity_id_to_remove]
+                return False, "Failed to remove channel from database"
             
             # Update config.json
             await self._export_config()
             
             logger.info(f"⚙️ SYSTEM: Removed user channel: {channel_identifier}")
-            return True, f"✅ Stopped monitoring {channel_identifier}"
+            return True, f"✅ Successfully {leave_status}: {channel_identifier}"
             
         except Exception as e:
             logger.error(f"⚙️ SYSTEM: Failed to remove channel {channel_identifier}: {e}")
