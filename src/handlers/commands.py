@@ -335,7 +335,12 @@ class CommandHandlers:
                 "• `/admin channels` - List all channels\n"
                 "• `/admin add_user_channel @channel` - Add user monitor channel\n"
                 "• `/admin remove_user_channel @channel` - Remove user channel\n"
-                "• `/admin export_config` - Update config.json\n",
+                        "• `/admin export_config` - Update config.json\n\n"
+            "**Data Management:**\n"
+            "• `/admin export` - Export all data to JSON files\n"
+            "• `/admin import` - Import from JSON files\n"
+            "• `/admin backup_manual` - Create manual backup\n"
+            "• `/admin list_backups` - List all backups\n",
                 parse_mode='Markdown'
             )
             return
@@ -356,6 +361,14 @@ class CommandHandlers:
             await self.admin_remove_user_channel_command(update, context)
         elif subcommand == "export_config":
             await self.admin_export_config_command(update, context)
+        elif subcommand == "export":
+            await self.admin_export_command(update, context)
+        elif subcommand == "import":
+            await self.admin_import_command(update, context)
+        elif subcommand == "backup_manual":
+            await self.admin_backup_manual_command(update, context)
+        elif subcommand == "list_backups":
+            await self.admin_list_backups_command(update, context)
         else:
             await update.message.reply_text(f"❓ Unknown admin command: {subcommand}")
 
@@ -554,3 +567,136 @@ class CommandHandlers:
         elif len(message_text) >= 8 and not message_text.isdigit():
             # 2FA password  
             await user_monitor.handle_auth_message(user_id, message_text)
+    # New Data Management Admin Commands
+    async def admin_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin export command"""
+        try:
+            # Export channels
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            
+            # Get config manager from bot data or create new instance
+            if hasattr(self, 'config_manager'):
+                config_manager = self.config_manager
+            else:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+            
+            config_manager.export_channels_config(bot_channels, user_channels)
+            
+            # Export users
+            users_data = await self.data_manager.export_all_users_for_config()
+            config_manager.export_users_config(users_data)
+            
+            message = (
+                f"✅ **Export Complete**\n\n"
+                f"📺 Channels: {len(bot_channels)} bot, {len(user_channels)} user\n"
+                f"👥 Users: {len(users_data)} users\n\n"
+                f"Files updated:\n"
+                f"• `data/config/channels.json`\n"
+                f"• `data/config/users.json`"
+            )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Export failed: {str(e)}")
+    
+    async def admin_import_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin import command"""
+        try:
+            # Get config manager
+            if hasattr(self, 'config_manager'):
+                config_manager = self.config_manager
+            else:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+            
+            # Load and import channels
+            config_manager.load_channels_config()
+            bot_channels = config_manager.get_channels_to_monitor()
+            user_channels = config_manager.get_user_monitored_channels()
+            
+            if bot_channels or user_channels:
+                await self.data_manager.import_channels_from_config(bot_channels, user_channels)
+            
+            # Load and import users
+            users_data = config_manager.load_users_config()
+            if users_data:
+                await self.data_manager.import_users_from_config(users_data)
+            
+            message = (
+                f"✅ **Import Complete**\n\n"
+                f"📺 Channels: {len(bot_channels)} bot, {len(user_channels)} user\n"
+                f"👥 Users: {len(users_data)} users\n\n"
+                f"⚠️ **Bot restart recommended** to reload monitoring"
+            )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Import failed: {str(e)}")
+    
+    async def admin_backup_manual_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin backup_manual command"""
+        try:
+            # Get config manager
+            if hasattr(self, 'config_manager'):
+                config_manager = self.config_manager
+            else:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+            
+            timestamp = config_manager.create_manual_backup()
+            if timestamp:
+                await update.message.reply_text(
+                    f"✅ **Manual backup created**\n\nTimestamp: `{timestamp}`\n\n"
+                    f"Files backed up:\n"
+                    f"• `channels_manual_{timestamp}.json`\n"
+                    f"• `users_manual_{timestamp}.json`",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Failed to create manual backup")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Backup failed: {str(e)}")
+    
+    async def admin_list_backups_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /admin list_backups command"""
+        try:
+            # Get config manager
+            if hasattr(self, 'config_manager'):
+                config_manager = self.config_manager
+            else:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+            
+            backups = config_manager.list_backups()
+            
+            if not backups:
+                await update.message.reply_text("📭 No backups found")
+                return
+            
+            message = f"📋 **Available Backups** ({len(backups)} files)\n\n"
+            
+            auto_backups = [b for b in backups if b['type'] == 'auto']
+            manual_backups = [b for b in backups if b['type'] == 'manual']
+            
+            if auto_backups:
+                message += f"**Automatic Backups** ({len(auto_backups)}):\n"
+                for backup in auto_backups[:5]:  # Show last 5
+                    message += f"• `{backup['filename']}` - {backup['created']}\n"
+                if len(auto_backups) > 5:
+                    message += f"... and {len(auto_backups) - 5} more\n"
+                message += "\n"
+            
+            if manual_backups:
+                message += f"**Manual Backups** ({len(manual_backups)}):\n"
+                for backup in manual_backups[:5]:  # Show last 5
+                    message += f"• `{backup['filename']}` - {backup['created']}\n"
+                if len(manual_backups) > 5:
+                    message += f"... and {len(manual_backups) - 5} more\n"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error listing backups: {str(e)}")

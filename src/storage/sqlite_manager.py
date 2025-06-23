@@ -403,3 +403,254 @@ class ConnectionContext:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         await self.connection_queue.put(self.connection)
+    # Export/Import Methods for Configuration Management
+    async def export_all_channels_for_config(self):
+        """Export all channels for config file"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT identifier, type FROM monitored_channels WHERE status = 'active' ORDER BY type, identifier"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                
+                bot_channels = [row[0] for row in rows if row[1] == 'bot']
+                user_channels = [row[0] for row in rows if row[1] == 'user']
+                
+                return bot_channels, user_channels
+    
+    async def export_all_users_for_config(self):
+        """Export all users with their data for config file"""
+        async with self._get_connection() as conn:
+            # Get all users with their keywords and ignore keywords
+            async with conn.execute("""
+                SELECT 
+                    u.id,
+                    u.created_at,
+                    u.last_active,
+                    u.total_forwards,
+                    GROUP_CONCAT(DISTINCT uk.keyword) as keywords,
+                    GROUP_CONCAT(DISTINCT uik.keyword) as ignore_keywords
+                FROM users u
+                LEFT JOIN user_keywords uk ON u.id = uk.user_id
+                LEFT JOIN user_ignore_keywords uik ON u.id = uik.user_id
+                GROUP BY u.id
+                ORDER BY u.id
+            """) as cursor:
+                rows = await cursor.fetchall()
+                
+                users_data = []
+                for row in rows:
+                    user_data = {
+                        'user_id': row[0],
+                        'created_at': row[1],
+                        'last_active': row[2], 
+                        'total_forwards': row[3] or 0,
+                        'keywords': row[4].split(',') if row[4] else [],
+                        'ignore_keywords': row[5].split(',') if row[5] else []
+                    }
+                    users_data.append(user_data)
+                
+                return users_data
+    
+    async def import_channels_from_config(self, bot_channels, user_channels):
+        """Import channels from config (replace existing)"""
+        async with self._get_connection() as conn:
+            await conn.execute("BEGIN TRANSACTION")
+            try:
+                # Clear existing channels
+                await conn.execute("DELETE FROM monitored_channels")
+                
+                # Import bot channels
+                for channel in bot_channels:
+                    await conn.execute(
+                        "INSERT INTO monitored_channels (identifier, type) VALUES (?, ?)",
+                        (channel, 'bot')
+                    )
+                
+                # Import user channels  
+                for channel in user_channels:
+                    await conn.execute(
+                        "INSERT INTO monitored_channels (identifier, type) VALUES (?, ?)",
+                        (channel, 'user')
+                    )
+                
+                await conn.commit()
+                logger.info(f"Imported {len(bot_channels)} bot channels, {len(user_channels)} user channels")
+                
+            except Exception:
+                await conn.rollback()
+                raise
+    
+    async def import_users_from_config(self, users_data):
+        """Import users from config (replace existing)"""
+        async with self._get_connection() as conn:
+            await conn.execute("BEGIN TRANSACTION")
+            try:
+                # Clear existing user data
+                await conn.execute("DELETE FROM user_keywords")
+                await conn.execute("DELETE FROM user_ignore_keywords") 
+                await conn.execute("DELETE FROM users")
+                
+                # Import users
+                for user in users_data:
+                    user_id = user['user_id']
+                    
+                    # Insert user
+                    await conn.execute("""
+                        INSERT INTO users (id, created_at, last_active, total_forwards)
+                        VALUES (?, ?, ?, ?)
+                    """, (
+                        user_id,
+                        user.get('created_at', datetime.now().isoformat()),
+                        user.get('last_active', datetime.now().isoformat()),
+                        user.get('total_forwards', 0)
+                    ))
+                    
+                    # Insert keywords
+                    for keyword in user.get('keywords', []):
+                        if keyword.strip():
+                            await conn.execute(
+                                "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
+                                (user_id, keyword.strip())
+                            )
+                    
+                    # Insert ignore keywords
+                    for keyword in user.get('ignore_keywords', []):
+                        if keyword.strip():
+                            await conn.execute(
+                                "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
+                                (user_id, keyword.strip())
+                            )
+                
+                await conn.commit()
+                logger.info(f"Imported {len(users_data)} users")
+                
+            except Exception:
+                await conn.rollback()
+                raise
+
+
+    # Export/Import Methods for Configuration Management
+    async def export_all_channels_for_config(self):
+        """Export all channels for config file"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT identifier, type FROM monitored_channels WHERE status = 'active' ORDER BY type, identifier"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                
+                bot_channels = [row[0] for row in rows if row[1] == 'bot']
+                user_channels = [row[0] for row in rows if row[1] == 'user']
+                
+                return bot_channels, user_channels
+    
+    async def export_all_users_for_config(self):
+        """Export all users with their data for config file"""
+        async with self._get_connection() as conn:
+            # Get all users with their keywords and ignore keywords
+            async with conn.execute("""
+                SELECT 
+                    u.id,
+                    u.created_at,
+                    u.last_active,
+                    u.total_forwards,
+                    GROUP_CONCAT(DISTINCT uk.keyword) as keywords,
+                    GROUP_CONCAT(DISTINCT uik.keyword) as ignore_keywords
+                FROM users u
+                LEFT JOIN user_keywords uk ON u.id = uk.user_id
+                LEFT JOIN user_ignore_keywords uik ON u.id = uik.user_id
+                GROUP BY u.id
+                ORDER BY u.id
+            """) as cursor:
+                rows = await cursor.fetchall()
+                
+                users_data = []
+                for row in rows:
+                    user_data = {
+                        'user_id': row[0],
+                        'created_at': row[1],
+                        'last_active': row[2], 
+                        'total_forwards': row[3] or 0,
+                        'keywords': row[4].split(',') if row[4] else [],
+                        'ignore_keywords': row[5].split(',') if row[5] else []
+                    }
+                    users_data.append(user_data)
+                
+                return users_data
+    
+    async def import_channels_from_config(self, bot_channels, user_channels):
+        """Import channels from config (replace existing)"""
+        async with self._get_connection() as conn:
+            await conn.execute("BEGIN TRANSACTION")
+            try:
+                # Clear existing channels
+                await conn.execute("DELETE FROM monitored_channels")
+                
+                # Import bot channels
+                for channel in bot_channels:
+                    await conn.execute(
+                        "INSERT INTO monitored_channels (identifier, type) VALUES (?, ?)",
+                        (channel, 'bot')
+                    )
+                
+                # Import user channels  
+                for channel in user_channels:
+                    await conn.execute(
+                        "INSERT INTO monitored_channels (identifier, type) VALUES (?, ?)",
+                        (channel, 'user')
+                    )
+                
+                await conn.commit()
+                logger.info(f"Imported {len(bot_channels)} bot channels, {len(user_channels)} user channels")
+                
+            except Exception:
+                await conn.rollback()
+                raise
+    
+    async def import_users_from_config(self, users_data):
+        """Import users from config (replace existing)"""
+        async with self._get_connection() as conn:
+            await conn.execute("BEGIN TRANSACTION")
+            try:
+                # Clear existing user data
+                await conn.execute("DELETE FROM user_keywords")
+                await conn.execute("DELETE FROM user_ignore_keywords") 
+                await conn.execute("DELETE FROM users")
+                
+                # Import users
+                for user in users_data:
+                    user_id = user['user_id']
+                    
+                    # Insert user
+                    await conn.execute("""
+                        INSERT INTO users (id, created_at, last_active, total_forwards)
+                        VALUES (?, ?, ?, ?)
+                    """, (
+                        user_id,
+                        user.get('created_at', datetime.now().isoformat()),
+                        user.get('last_active', datetime.now().isoformat()),
+                        user.get('total_forwards', 0)
+                    ))
+                    
+                    # Insert keywords
+                    for keyword in user.get('keywords', []):
+                        if keyword.strip():
+                            await conn.execute(
+                                "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
+                                (user_id, keyword.strip())
+                            )
+                    
+                    # Insert ignore keywords
+                    for keyword in user.get('ignore_keywords', []):
+                        if keyword.strip():
+                            await conn.execute(
+                                "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
+                                (user_id, keyword.strip())
+                            )
+                
+                await conn.commit()
+                logger.info(f"Imported {len(users_data)} users")
+                
+            except Exception:
+                await conn.rollback()
+                raise
+

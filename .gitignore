@@ -1,5 +1,10 @@
-# Environment variables
+# Environment variables and secrets
 .env
+data/
+bot-secrets.env
+bot-secrets.conf
+
+# Config files  
 config.json
 
 # Python
@@ -12,14 +17,13 @@ env/
 venv/
 .venv/
 
-# SQLite database files
-data/bot.db*
+# Database files
 *.db
 *.db-shm
 *.db-wal
 
-# Docker
-.dockerignore
+# Sessions
+*.session
 
 # Logs
 *.log

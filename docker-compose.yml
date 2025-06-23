@@ -2,23 +2,18 @@ services:
   telegram-bot:
     build: .
     container_name: job-collector-bot
+    env_file:
+      - data/config/bot-secrets.env
     environment:
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - API_ID=${API_ID:-}
-      - API_HASH=${API_HASH:-}
-      - PHONE_NUMBER=${PHONE_NUMBER:-}
-      - AUTHORIZED_ADMIN_ID=${AUTHORIZED_ADMIN_ID:-}
-      - SESSION_NAME=user_monitor
       - DATABASE_PATH=/app/data/bot.db
       - LOG_LEVEL=INFO
     volumes:
-      - ./config.json:/app/config.json
       - ./data:/app/data
     restart: unless-stopped
     networks:
       - bot-network
     healthcheck:
-      test: ["CMD", "python", "/app/health_check.py"]
+      test: ["CMD", "python", "/app/src/health_check.py"]
       interval: 30s
       timeout: 10s
       retries: 3
