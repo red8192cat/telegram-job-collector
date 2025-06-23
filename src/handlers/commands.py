@@ -242,3 +242,171 @@ class CommandHandlers:
         await update.message.reply_text("📋 **Admin Commands**\n\n• `/auth_status` - Check auth status\n• `/auth_restart` - Restart auth", parse_mode='Markdown')
     
     # Add minimal versions of other commands here if needed...
+    
+    async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /keywords command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text(get_set_keywords_help())
+            return
+        
+        keywords_text = ' '.join(context.args)
+        keywords = [k.strip().lower() for k in keywords_text.split(',') if k.strip()]
+        
+        if not keywords:
+            await update.message.reply_text("No valid keywords provided!")
+            return
+        
+        await self.data_manager.set_user_keywords(chat_id, keywords)
+        
+        keywords_str = ', '.join(keywords)
+        await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
+    
+    async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /ignore_keywords command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text("Please provide ignore keywords: /ignore_keywords java, senior, manager")
+            return
+        
+        keywords_text = ' '.join(context.args)
+        keywords = [k.strip().lower() for k in keywords_text.split(',') if k.strip()]
+        
+        if not keywords:
+            await update.message.reply_text("No valid ignore keywords provided!")
+            return
+        
+        await self.data_manager.set_user_ignore_keywords(chat_id, keywords)
+        
+        keywords_str = ', '.join(keywords)
+        await update.message.reply_text(f"✅ Ignore keywords set: {keywords_str}")
+    
+    async def add_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add_keyword_to_list command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text(get_add_keyword_help())
+            return
+        
+        keyword = ' '.join(context.args).strip().lower()
+        
+        if await self.data_manager.add_user_keyword(chat_id, keyword):
+            await update.message.reply_text(f"✅ Added keyword: {keyword}")
+        else:
+            await update.message.reply_text(f"Keyword '{keyword}' already in your list!")
+    
+    async def delete_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /delete_keyword_from_list command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text("Please provide a keyword: /delete_keyword_from_list python")
+            return
+        
+        keyword_to_delete = ' '.join(context.args).strip().lower()
+        keywords = await self.data_manager.get_user_keywords(chat_id)
+        
+        if not keywords:
+            await update.message.reply_text("You don't have any keywords set!")
+            return
+        
+        if await self.data_manager.remove_user_keyword(chat_id, keyword_to_delete):
+            await update.message.reply_text(f"✅ Removed keyword: {keyword_to_delete}")
+        else:
+            # Show current keywords to help user
+            current = ', '.join(keywords)
+            await update.message.reply_text(
+                f"❌ Keyword '{keyword_to_delete}' not found!\n\n"
+                f"Your current keywords: {current}"
+            )
+    
+    async def add_ignore_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /add_ignore_keyword command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text("Please provide an ignore keyword: /add_ignore_keyword java")
+            return
+        
+        keyword = ' '.join(context.args).strip().lower()
+        
+        if await self.data_manager.add_user_ignore_keyword(chat_id, keyword):
+            await update.message.reply_text(f"✅ Added ignore keyword: {keyword}")
+        else:
+            await update.message.reply_text(f"Ignore keyword '{keyword}' already in your list!")
+    
+    async def delete_ignore_keyword_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /delete_ignore_keyword command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if not context.args:
+            await update.message.reply_text("Please provide an ignore keyword: /delete_ignore_keyword java")
+            return
+        
+        keyword = ' '.join(context.args).strip().lower()
+        
+        if await self.data_manager.remove_user_ignore_keyword(chat_id, keyword):
+            await update.message.reply_text(f"✅ Removed ignore keyword: {keyword}")
+        else:
+            await update.message.reply_text(f"Ignore keyword '{keyword}' not found in your list!")
+    
+    async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /purge_ignore command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        
+        if await self.data_manager.purge_user_ignore_keywords(chat_id):
+            await update.message.reply_text("✅ All ignore keywords cleared!")
+        else:
+            await update.message.reply_text("You don't have any ignore keywords set!")
+    
+    async def show_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /my_keywords command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        keywords = await self.data_manager.get_user_keywords(chat_id)
+        
+        if keywords:
+            keywords_str = ', '.join(keywords)
+            await update.message.reply_text(f"📝 Your keywords: {keywords_str}")
+        else:
+            await update.message.reply_text("You haven't set any keywords yet!")
+    
+    async def show_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /my_ignore command"""
+        if not is_private_chat(update):
+            return
+        
+        chat_id = update.effective_chat.id
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
+        
+        if ignore_keywords:
+            ignore_str = ', '.join(ignore_keywords)
+            await update.message.reply_text(f"🚫 Your ignore keywords: {ignore_str}")
+        else:
+            await update.message.reply_text("You haven't set any ignore keywords yet!")
