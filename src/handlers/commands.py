@@ -1,5 +1,6 @@
 """
 Command Handlers - Production version with channel management
+Updated with new keyword parsing logic (no quotes)
 """
 
 import logging
@@ -94,7 +95,7 @@ class CommandHandlers:
         await update.message.reply_text(get_help_text())
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command"""
+        """Handle /keywords command - UPDATED with new parsing logic"""
         if not is_private_chat(update):
             return
         
@@ -105,11 +106,18 @@ class CommandHandlers:
             return
         
         keywords_text = ' '.join(context.args)
-        keywords = [k.strip().lower() for k in keywords_text.split(',') if k.strip()]
+        
+        # Use new parsing logic - no quotes, comma-separated
+        from matching.keywords import KeywordMatcher
+        matcher = KeywordMatcher()
+        keywords = matcher.parse_keywords(keywords_text)
         
         if not keywords:
             await update.message.reply_text("No valid keywords provided!")
             return
+        
+        # Convert to lowercase for storage
+        keywords = [k.lower() for k in keywords]
         
         await self.data_manager.set_user_keywords(chat_id, keywords)
         
@@ -117,22 +125,29 @@ class CommandHandlers:
         await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
     
     async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ignore_keywords command"""
+        """Handle /ignore_keywords command - UPDATED with new parsing logic"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide ignore keywords: /ignore_keywords java, senior, manager")
+            await update.message.reply_text("Please provide ignore keywords: /ignore_keywords java*, senior*, manage*")
             return
         
         keywords_text = ' '.join(context.args)
-        keywords = [k.strip().lower() for k in keywords_text.split(',') if k.strip()]
+        
+        # Use new parsing logic - no quotes, comma-separated  
+        from matching.keywords import KeywordMatcher
+        matcher = KeywordMatcher()
+        keywords = matcher.parse_keywords(keywords_text)
         
         if not keywords:
             await update.message.reply_text("No valid ignore keywords provided!")
             return
+        
+        # Convert to lowercase for storage
+        keywords = [k.lower() for k in keywords]
         
         await self.data_manager.set_user_ignore_keywords(chat_id, keywords)
         
@@ -192,7 +207,7 @@ class CommandHandlers:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide an ignore keyword: /add_ignore_keyword java")
+            await update.message.reply_text("Please provide an ignore keyword: /add_ignore_keyword java*")
             return
         
         keyword = ' '.join(context.args).strip().lower()
@@ -210,7 +225,7 @@ class CommandHandlers:
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide an ignore keyword: /delete_ignore_keyword java")
+            await update.message.reply_text("Please provide an ignore keyword: /delete_ignore_keyword java*")
             return
         
         keyword = ' '.join(context.args).strip().lower()
@@ -335,12 +350,12 @@ class CommandHandlers:
                 "• `/admin channels` - List all channels\n"
                 "• `/admin add_user_channel @channel` - Add user monitor channel\n"
                 "• `/admin remove_user_channel @channel` - Remove user channel\n"
-                        "• `/admin export_config` - Update config.json\n\n"
-            "**Data Management:**\n"
-            "• `/admin export` - Export all data to JSON files\n"
-            "• `/admin import` - Import from JSON files\n"
-            "• `/admin backup_manual` - Create manual backup\n"
-            "• `/admin list_backups` - List all backups\n",
+                "• `/admin export_config` - Update config.json\n\n"
+                "**Data Management:**\n"
+                "• `/admin export` - Export all data to JSON files\n"
+                "• `/admin import` - Import from JSON files\n"
+                "• `/admin backup_manual` - Create manual backup\n"
+                "• `/admin list_backups` - List all backups\n",
                 parse_mode='Markdown'
             )
             return
@@ -544,29 +559,6 @@ class CommandHandlers:
         except Exception as e:
             await update.message.reply_text(f"❌ Error exporting config: {str(e)}")
     
-    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle authentication messages"""
-        if not update.message or not update.message.text:
-            return
-        
-        # Only handle for admin user
-        if not self._is_authorized_admin(update, context):
-            return
-        
-        user_monitor = context.bot_data.get('user_monitor', None)
-        if not user_monitor or not user_monitor.is_waiting_for_auth():
-            return
-        
-        user_id = update.effective_user.id
-        message_text = update.message.text.strip()
-        
-        # Only handle likely auth codes/passwords
-        if message_text.isdigit() and 5 <= len(message_text) <= 6:
-            # SMS code
-            await user_monitor.handle_auth_message(user_id, message_text)
-        elif len(message_text) >= 8 and not message_text.isdigit():
-            # 2FA password  
-            await user_monitor.handle_auth_message(user_id, message_text)
     # New Data Management Admin Commands
     async def admin_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /admin export command"""
@@ -700,3 +692,27 @@ class CommandHandlers:
             
         except Exception as e:
             await update.message.reply_text(f"❌ Error listing backups: {str(e)}")
+    
+    async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle authentication messages"""
+        if not update.message or not update.message.text:
+            return
+        
+        # Only handle for admin user
+        if not self._is_authorized_admin(update, context):
+            return
+        
+        user_monitor = context.bot_data.get('user_monitor', None)
+        if not user_monitor or not user_monitor.is_waiting_for_auth():
+            return
+        
+        user_id = update.effective_user.id
+        message_text = update.message.text.strip()
+        
+        # Only handle likely auth codes/passwords
+        if message_text.isdigit() and 5 <= len(message_text) <= 6:
+            # SMS code
+            await user_monitor.handle_auth_message(user_id, message_text)
+        elif len(message_text) >= 8 and not message_text.isdigit():
+            # 2FA password  
+            await user_monitor.handle_auth_message(user_id, message_text)
