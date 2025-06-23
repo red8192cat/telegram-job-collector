@@ -1,5 +1,6 @@
 """
 Message Handlers - Channel message processing and job forwarding
+FIXED: Handler registration order to not block commands
 """
 
 import asyncio
@@ -22,10 +23,20 @@ class MessageHandlers:
         self.keyword_matcher = KeywordMatcher()
     
     def register(self, app):
-        # Authentication message handler (highest priority)
-        app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.PRIVATE, self.handle_potential_auth_message), group=0)
-        """Register message handlers"""
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_channel_message))
+        """Register message handlers - FIXED ORDER"""
+        # Register channel message handler (for non-command messages)
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND & ~filters.ChatType.PRIVATE, 
+            self.handle_channel_message
+        ))
+        
+        # Register authentication message handler ONLY for private non-command messages
+        # This runs in a lower priority group so commands are processed first
+        app.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, 
+            self.handle_potential_auth_message
+        ), group=1)
+        
         logger.info("Message handlers registered")
     
     async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -148,11 +159,12 @@ class MessageHandlers:
         return handled
 
     async def handle_potential_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle potential authentication messages first"""
-        # Try auth message handling first
+        """Handle potential authentication messages - ONLY for non-commands"""
+        # This now only handles non-command private messages
+        # Commands are processed by command handlers first
         auth_handled = await self.handle_auth_message(update, context)
         if auth_handled:
             return  # Stop processing if it was an auth message
         
-        # Continue with normal private message handling if needed
+        # If not an auth message, ignore (it's just a regular private message)
         pass
