@@ -1,6 +1,6 @@
 """
 SECURE User Account Monitor with Admin-Only Authentication
-Only authorized admin can use authentication commands
+FIXED: Event handler registration timing and debugging
 """
 
 import asyncio
@@ -34,6 +34,9 @@ class UserAccountMonitor:
         self.waiting_for_code = False
         self.waiting_for_2fa = False
         self.expected_user_id = None
+        
+        # 🔥 FIX: Event handler registration flag
+        self.event_handler_registered = False
         
         # SECURITY: Get authorized admin ID
         self.authorized_admin_id = None
@@ -104,9 +107,8 @@ class UserAccountMonitor:
                 
                 await self.update_monitored_entities()
                 
-                @self.client.on(events.NewMessage)
-                async def handle_new_message(event):
-                    await self.process_channel_message(event)
+                # 🔥 FIX: Register event handler AFTER full authentication
+                await self._register_event_handler()
                 
                 logger.info(f"User monitor active for {len(self.monitored_entities)} additional channels")
                 return True
@@ -119,6 +121,30 @@ class UserAccountMonitor:
             except:
                 logger.error("Could not start authentication process")
             return False
+    
+    async def _register_event_handler(self):
+        """Register event handler AFTER authentication is complete"""
+        if self.event_handler_registered:
+            logger.info("🔥 EVENT DEBUG: Event handler already registered")
+            return
+        
+        try:
+            logger.info("🔥 EVENT DEBUG: Registering message event handler...")
+            
+            @self.client.on(events.NewMessage)
+            async def handle_new_message(event):
+                logger.info(f"🔥 EVENT DEBUG: Received message event from chat {event.chat_id}")
+                await self.process_channel_message(event)
+            
+            self.event_handler_registered = True
+            logger.info("🔥 EVENT DEBUG: ✅ Message event handler registered successfully")
+            
+            # Test event handler registration
+            await self._notify_admin("🔥 **Debug**: Event handler registered and ready to receive messages")
+            
+        except Exception as e:
+            logger.error(f"🔥 EVENT DEBUG: ❌ Failed to register event handler: {e}")
+            await self._notify_admin(f"❌ **Event Handler Error**: {str(e)}")
     
     async def _start_auth_process(self):
         """Start authentication and notify admin"""
@@ -235,9 +261,8 @@ class UserAccountMonitor:
         try:
             await self.update_monitored_entities()
             
-            @self.client.on(events.NewMessage)
-            async def handle_new_message(event):
-                await self.process_channel_message(event)
+            # 🔥 FIX: Register event handler AFTER authentication
+            await self._register_event_handler()
             
             # Notify about successful setup
             channel_count = len(self.monitored_entities)
@@ -336,10 +361,11 @@ class UserAccountMonitor:
         
         chat_id = event.chat_id
         if chat_id not in self.monitored_entities:
+            logger.info(f"🔥 EVENT DEBUG: Message from unmonitored chat {chat_id}, ignoring")
             return
         
         channel_info = self.monitored_entities[chat_id]
-        logger.info(f"Processing user-monitored message from: {channel_info['identifier']}")
+        logger.info(f"🔥 EVENT DEBUG: Processing user-monitored message from: {channel_info['identifier']}")
         
         message_text = event.message.text
         all_users = await self.data_manager.get_all_users_with_keywords()
@@ -368,7 +394,9 @@ class UserAccountMonitor:
                     logger.error(f"Failed to forward to user {user_chat_id}: {e}")
         
         if forwarded_count > 0:
-            logger.info(f"User monitor forwarded message to {forwarded_count} users")
+            logger.info(f"🔥 EVENT DEBUG: User monitor forwarded message to {forwarded_count} users")
+        else:
+            logger.info(f"🔥 EVENT DEBUG: No users matched keywords for this message")
     
     async def forward_message_via_bot(self, user_chat_id, message, source_chat_id):
         """Forward message to user via bot"""
@@ -400,7 +428,7 @@ class UserAccountMonitor:
             logger.info("User monitor not running (disabled)")
             return
             
-        logger.info("User monitor running...")
+        logger.info("🔥 EVENT DEBUG: User monitor starting to run forever...")
         try:
             await self.client.run_until_disconnected()
         except Exception as e:
