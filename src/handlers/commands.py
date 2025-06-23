@@ -1,5 +1,5 @@
 """
-Command Handlers - Simplified version with only /start (no /menu)
+Command Handlers - Enhanced version with clear success messages and timing expectations
 """
 
 import logging
@@ -51,7 +51,7 @@ class CommandHandlers:
             self.handle_auth_message
         ), group=10)
         
-        logger.info("Simplified command handlers registered successfully (no /menu)")
+        logger.info("Enhanced command handlers registered successfully")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with interactive menu"""
@@ -64,7 +64,8 @@ class CommandHandlers:
             "🤖 Welcome to JobFinderBot!\n\n"
             "I help you collect job postings from some channels based on your keywords.\n\n"
             "✅ Advanced keyword filtering\n"
-            "✅ Ignore unwanted posts\n\n"
+            "✅ Ignore unwanted posts\n"
+            "⏰ Real-time alerts for NEW jobs only (no old posts!)\n\n"
             "Use the menu below to get started:"
         )
         
@@ -79,7 +80,7 @@ class CommandHandlers:
         await update.message.reply_text(get_help_text())
     
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command"""
+        """Handle /keywords command with enhanced success message"""
         if not is_private_chat(update):
             return
         
@@ -105,18 +106,31 @@ class CommandHandlers:
         
         await self.data_manager.set_user_keywords(chat_id, keywords)
         
+        # Enhanced success message with timing clarification
         keywords_str = ', '.join(keywords)
-        await update.message.reply_text(f"✅ Keywords set: {keywords_str}")
+        success_message = (
+            f"✅ Keywords set: {keywords_str}\n\n"
+            f"🎯 I'm now monitoring for NEW jobs that match these keywords!\n"
+            f"⏰ Only fresh posts from now on - no old jobs will be sent.\n\n"
+            f"💡 Matching jobs will be forwarded instantly as they're posted in monitored channels."
+        )
+        
+        await update.message.reply_text(success_message)
     
     async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ignore_keywords command"""
+        """Handle /ignore_keywords command with enhanced success message"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if not context.args:
-            await update.message.reply_text("Please provide ignore keywords:\n/ignore_keywords java*, senior*, manage*")
+            await update.message.reply_text(
+                "Please provide ignore keywords:\n"
+                "/ignore_keywords java*, senior*, manage*\n\n"
+                "⏰ These will block matching jobs from being forwarded to you.\n"
+                "Use commas to separate multiple keywords."
+            )
             return
         
         keywords_text = ' '.join(context.args)
@@ -135,8 +149,16 @@ class CommandHandlers:
         
         await self.data_manager.set_user_ignore_keywords(chat_id, keywords)
         
+        # Enhanced success message for ignore keywords
         keywords_str = ', '.join(keywords)
-        await update.message.reply_text(f"✅ Ignore keywords set: {keywords_str}")
+        success_message = (
+            f"✅ Ignore keywords set: {keywords_str}\n\n"
+            f"🚫 Jobs containing these terms will be blocked from now on.\n"
+            f"⏰ This applies to all NEW job posts going forward.\n\n"
+            f"💡 Even if a job matches your keywords, it won't be forwarded if it contains these ignore terms."
+        )
+        
+        await update.message.reply_text(success_message)
     
     async def show_settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /my_settings command - shows both keywords and ignore keywords"""
@@ -160,6 +182,11 @@ class CommandHandlers:
         else:
             msg += "🚫 Ignore Keywords: None set\nUse /ignore_keywords to set them.\n\n"
         
+        # Add status information
+        if keywords:
+            msg += "🎯 Status: Monitoring for NEW jobs that match your keywords\n"
+            msg += "⏰ Only fresh posts are forwarded - no old jobs\n\n"
+        
         msg += "💡 Quick Commands:\n"
         msg += "• /keywords - Update search keywords\n"
         msg += "• /ignore_keywords - Update ignore keywords\n"
@@ -168,14 +195,19 @@ class CommandHandlers:
         await update.message.reply_text(msg)
     
     async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /purge_ignore command"""
+        """Handle /purge_ignore command with enhanced confirmation"""
         if not is_private_chat(update):
             return
         
         chat_id = update.effective_chat.id
         
         if await self.data_manager.purge_user_ignore_keywords(chat_id):
-            await update.message.reply_text("✅ All ignore keywords cleared!")
+            success_message = (
+                "✅ All ignore keywords cleared!\n\n"
+                "🎯 Your keyword filtering is now based only on your main keywords.\n"
+                "⏰ This change applies to all NEW jobs going forward."
+            )
+            await update.message.reply_text(success_message)
         else:
             await update.message.reply_text("You don't have any ignore keywords set!")
     
