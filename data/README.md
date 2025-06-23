@@ -8,11 +8,11 @@ This directory contains all runtime data for the Telegram Job Collector Bot.
 data/
 ├── README.md                    # This file
 ├── config/                      # Configuration files
-│   ├── bot-secrets.example      # Template for credentials (COPY TO bot-secrets.env)
+│   ├── bot-secrets.env.example      # Template for credentials (COPY TO bot-secrets.env)
 │   ├── bot-secrets.env          # Your actual credentials (NOT in git)
-│   ├── channels.example.json    # Example channel configuration
+│   ├── channels.json.example    # Example channel configuration
 │   ├── channels.json           # Actual channel config (auto-generated, NOT in git)
-│   ├── users.example.json      # Example user data format
+│   ├── users.json.example      # Example user data format
 │   ├── users.json              # Actual user data (auto-generated, NOT in git)
 │   └── backups/                # Backup storage
 │       └── .gitkeep           # Keeps directory in git
@@ -24,7 +24,7 @@ data/
 
 1. **Copy template to actual config:**
    ```bash
-   cp data/config/bot-secrets.example data/config/bot-secrets.env
+   cp data/config/bot-secrets.env.example data/config/bot-secrets.env
    ```
 
 2. **Edit your credentials:**
