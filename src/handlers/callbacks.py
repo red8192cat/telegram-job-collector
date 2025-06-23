@@ -1,5 +1,5 @@
 """
-Callback Handlers - Menu button interactions
+Callback Handlers - Simplified menu interactions with merged settings
 """
 
 import logging
@@ -7,7 +7,7 @@ from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
 from storage.sqlite_manager import SQLiteManager
-from utils.helpers import create_main_menu, create_back_menu, get_help_text, get_keywords_help, get_ignore_help, get_contact_info
+from utils.helpers import create_main_menu, create_back_menu, get_help_text, get_keywords_help, get_ignore_help
 
 logger = logging.getLogger(__name__)
 
@@ -30,30 +30,38 @@ class CallbackHandlers:
             await query.answer()
             
             if query.data == "menu_keywords":
-                await query.edit_message_text(get_keywords_help(), reply_markup=create_back_menu())
+                await query.edit_message_text(get_keywords_help(), reply_markup=create_back_menu(), parse_mode='Markdown')
             elif query.data == "menu_ignore":
-                await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu())
-            elif query.data == "menu_show_keywords":
+                await query.edit_message_text(get_ignore_help(), reply_markup=create_back_menu(), parse_mode='Markdown')
+            elif query.data == "menu_show_settings":
                 chat_id = query.from_user.id
+                
+                # Get both keywords and ignore keywords
                 keywords = await self.data_manager.get_user_keywords(chat_id)
-                if keywords:
-                    msg = f"📝 Your keywords: {', '.join(keywords)}"
-                else:
-                    msg = "You haven't set any keywords yet!"
-                await query.edit_message_text(msg, reply_markup=create_back_menu())
-            elif query.data == "menu_show_ignore":
-                chat_id = query.from_user.id
                 ignore_keywords = await self.data_manager.get_user_ignore_keywords(chat_id)
-                if ignore_keywords:
-                    msg = f"🚫 Your ignore keywords: {', '.join(ignore_keywords)}"
+                
+                # Build combined message
+                msg = "⚙️ **Your Current Settings**\n\n"
+                
+                if keywords:
+                    msg += f"📝 **Keywords:** {', '.join(keywords)}\n\n"
                 else:
-                    msg = "You haven't set any ignore keywords yet!"
-                await query.edit_message_text(msg, reply_markup=create_back_menu())
-            elif query.data == "menu_contact":
-                await query.edit_message_text(get_contact_info(), reply_markup=create_back_menu())
+                    msg += "📝 **Keywords:** None set\nUse `/keywords` to set them.\n\n"
+                
+                if ignore_keywords:
+                    msg += f"🚫 **Ignore Keywords:** {', '.join(ignore_keywords)}\n\n"
+                else:
+                    msg += "🚫 **Ignore Keywords:** None set\nUse `/ignore_keywords` to set them.\n\n"
+                
+                msg += "💡 **Quick Commands:**\n"
+                msg += "• `/keywords` - Update search keywords\n"
+                msg += "• `/ignore_keywords` - Update ignore keywords\n"
+                msg += "• `/purge_ignore` - Clear all ignore keywords"
+                
+                await query.edit_message_text(msg, reply_markup=create_back_menu(), parse_mode='Markdown')
             elif query.data == "menu_help":
-                await query.edit_message_text(get_help_text(), reply_markup=create_back_menu())
+                await query.edit_message_text(get_help_text(), reply_markup=create_back_menu(), parse_mode='Markdown')
             elif query.data == "menu_back":
-                await query.edit_message_text("📋 Main Menu:", reply_markup=create_main_menu())
+                await query.edit_message_text("📋 **Main Menu:**", reply_markup=create_main_menu(), parse_mode='Markdown')
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")

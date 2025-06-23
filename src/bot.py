@@ -280,14 +280,9 @@ class JobCollectorBot:
             BotCommand("menu", "📋 Show interactive menu"),
             BotCommand("keywords", "🎯 Set your search keywords"),
             BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
-            BotCommand("my_keywords", "📝 Show your current keywords"),
-            BotCommand("my_ignore", "📋 Show your ignore keywords"),
-            BotCommand("add_keyword_to_list", "➕ Add a keyword"),
-            BotCommand("add_ignore_keyword", "➕ Add ignore keyword"),
-            BotCommand("delete_keyword_from_list", "➖ Remove a keyword"),
-            BotCommand("delete_ignore_keyword", "➖ Remove ignore keyword"),
+            BotCommand("my_settings", "⚙️ Show your current settings"),
             BotCommand("purge_ignore", "🗑️ Clear all ignore keywords"),
-            BotCommand("help", "❓ Show help and examples"),
+            BotCommand("help", "❓ Show help and contact info"),
         ]
         
         # NOTE: auth_status, auth_restart, and admin commands are NOT in public menu
@@ -295,7 +290,7 @@ class JobCollectorBot:
         
         try:
             await self.app.bot.set_my_commands(commands)
-            logger.info("Bot menu commands set successfully (auth commands hidden)")
+            logger.info("Bot menu commands set successfully")
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
     
