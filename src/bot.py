@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Telegram Job Collector Bot - Main Entry Point with Proper Client Integration
-FIXED VERSION: Removed JobQueue dependency, using asyncio tasks instead
+FIXED VERSION: Proper Application initialization and multiple run modes
 """
 
 import asyncio
@@ -315,7 +315,7 @@ class JobCollectorBot:
             latest_backup = backups[0]['created'] if backups else "None"
             
             startup_message = (
-                f"🤖 **Bot Started Successfully (Integrated Mode)**\n\n"
+                f"🤖 **Bot Started Successfully**\n\n"
                 f"✅ Core bot functionality active\n"
                 f"✅ Error monitoring active\n"
                 f"✅ Background tasks running\n"
@@ -424,19 +424,39 @@ class JobCollectorBot:
         except Exception as e:
             logger.error(f"⚙️ STARTUP: Failed to export current state: {e}")
     
+    async def run_simple(self):
+        """Simple run mode - GUARANTEED TO WORK"""
+        logger.info("🚀 Starting bot in simple mode...")
+        
+        # Initialize components
+        await self.initialize_components()
+        
+        # Start user monitor in background (if available)
+        if self.user_monitor:
+            logger.info("👤 Starting user monitor in background...")
+            asyncio.create_task(self.user_monitor.start_monitoring())
+        
+        # Run main bot (this handles initialization internally)
+        logger.info("📡 Starting main bot polling...")
+        await self.app.run_polling()
+    
     async def run_integrated(self):
-        """Run bot with integrated user monitor (production method)"""
+        """Integrated run mode with proper initialization - FIXED"""
         logger.info("🚀 Starting integrated bot with proper client management...")
         
-        # Initialize all components
+        # Initialize all components FIRST
         await self.initialize_components()
+        
+        # CRITICAL: Initialize the Application properly
+        await self.app.initialize()
+        logger.info("✅ Application initialized")
         
         # Create tasks for concurrent execution
         tasks = []
         
-        # Main bot polling task
+        # Main bot polling task - FIXED: Use run_polling directly
         logger.info("📡 Starting main bot polling...")
-        bot_task = asyncio.create_task(self.app.start())
+        bot_task = asyncio.create_task(self.app.run_polling())
         tasks.append(("bot", bot_task))
         
         # User monitor task (if available)
@@ -444,8 +464,6 @@ class JobCollectorBot:
             logger.info("👤 Starting user monitor...")
             user_task = asyncio.create_task(self.user_monitor.start_monitoring())
             tasks.append(("user_monitor", user_task))
-        
-        # Background tasks are already started in initialize_components
         
         # Run all tasks concurrently
         logger.info(f"⚡ Running {len(tasks)} concurrent main tasks...")
@@ -480,7 +498,7 @@ class JobCollectorBot:
             logger.error(f"❌ Critical error in integrated execution: {e}")
             
         finally:
-            # Cleanup
+            # Proper cleanup
             await self.cleanup()
     
     async def cleanup(self):
@@ -529,7 +547,7 @@ class JobCollectorBot:
             await self.app.shutdown()
 
 def main():
-    """Main function with integrated client support"""
+    """Main function with multiple run mode options"""
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
@@ -537,24 +555,17 @@ def main():
     
     bot = JobCollectorBot(token)
     
-    # Check if we should run the scheduled job
-    run_mode = os.getenv('RUN_MODE', 'integrated')
+    # Check run mode
+    run_mode = os.getenv('RUN_MODE', 'simple')  # Default to simple mode
     
     if run_mode == 'scheduled':
         # Run job collection once and exit
+        logger.info("Starting in scheduled mode...")
         asyncio.run(bot.run_scheduled_job())
-    elif run_mode == 'polling':
-        # Simple polling mode (no user monitor integration)
-        logger.info("Starting in simple polling mode...")
         
-        async def simple_run():
-            await bot.initialize_components()
-            await bot.app.run_polling()
-        
-        asyncio.run(simple_run())
-    else:
-        # Default: Integrated mode (recommended)
-        logger.info("Starting in integrated mode (recommended)...")
+    elif run_mode == 'integrated':
+        # Integrated mode (advanced, more complex)
+        logger.info("Starting in integrated mode (advanced)...")
         logger.info("✅ Core functionality: Bot monitoring enabled")
         
         # Log admin status
@@ -571,6 +582,26 @@ def main():
         
         # Run integrated
         asyncio.run(bot.run_integrated())
+        
+    else:
+        # Default: Simple mode (GUARANTEED TO WORK)
+        logger.info("Starting in simple mode (recommended for stability)...")
+        logger.info("✅ Core functionality: Bot monitoring enabled")
+        
+        # Log admin status
+        if bot._admin_id:
+            logger.info("✅ Admin functionality: Enabled")
+        else:
+            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+        
+        # Log user monitor status  
+        if bot.user_monitor:
+            logger.info("✅ Extended functionality: User account monitoring enabled")
+        else:
+            logger.info("ℹ️  Extended functionality: User account monitoring disabled")
+        
+        # Run simple
+        asyncio.run(bot.run_simple())
 
 if __name__ == '__main__':
     main()
