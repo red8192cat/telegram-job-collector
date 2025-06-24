@@ -1,14 +1,16 @@
 """
-Enhanced Configuration Manager with Backup System
+Enhanced Configuration Manager with Simple Channel Support
+Supports @username, t.me/channel, and chat IDs with automatic parsing
 """
 
 import json
 import logging
 import shutil
 import os
+import re
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,14 +36,53 @@ class ConfigManager:
         # Load configuration
         self.load_channels_config()
     
+    def parse_channel_input(self, input_str: str) -> Optional[str]:
+        """
+        Parse channel input and return username (or None for private channels)
+        
+        Supports:
+        - @channelname → @channelname
+        - t.me/channelname → @channelname  
+        - https://t.me/channelname → @channelname
+        - t.me/joinchat/xyz → None (private)
+        - -1001234567890 → None (chat ID only)
+        """
+        input_str = input_str.strip()
+        
+        # Handle @username format
+        if input_str.startswith('@'):
+            return input_str
+        
+        # Handle t.me/username (with or without https)
+        tme_pattern = r'(?:https?://)?t\.me/([^/\s]+)'
+        match = re.match(tme_pattern, input_str)
+        if match:
+            channel_part = match.group(1)
+            
+            # Skip joinchat links (private channels)
+            if channel_part.startswith('joinchat/'):
+                return None
+            else:
+                # Public channel
+                return f"@{channel_part}"
+        
+        # Handle raw chat ID or unknown format
+        return None
+    
     def load_channels_config(self):
         """Load channels configuration"""
         try:
             if self.channels_file.exists():
                 with open(self.channels_file, 'r') as f:
                     config = json.load(f)
-                    self.channels_to_monitor = config.get('channels', [])
-                    self.user_monitored_channels = config.get('user_monitored_channels', [])
+                    
+                    # Handle both old format (strings) and new format (dicts)
+                    raw_bot_channels = config.get('channels', [])
+                    raw_user_channels = config.get('user_monitored_channels', [])
+                    
+                    self.channels_to_monitor = self._extract_chat_ids(raw_bot_channels)
+                    self.user_monitored_channels = self._extract_chat_ids(raw_user_channels)
+                    
                     logger.info(f"Loaded {len(self.channels_to_monitor)} bot channels, {len(self.user_monitored_channels)} user channels")
             else:
                 logger.info("No channels.json found - using empty channel lists")
@@ -52,30 +93,50 @@ class ConfigManager:
             self.channels_to_monitor = []
             self.user_monitored_channels = []
     
-    def export_channels_config(self, bot_channels: List[str], user_channels: List[str]):
-        """Export channels configuration with backup"""
+    def _extract_chat_ids(self, channels_list: List) -> List[int]:
+        """Extract chat_ids from channels list (handles both old and new format)"""
+        chat_ids = []
+        for item in channels_list:
+            if isinstance(item, dict):
+                # New format
+                chat_id = item.get('chat_id')
+                if chat_id:
+                    chat_ids.append(chat_id)
+            elif isinstance(item, str):
+                # Old format - try to parse
+                if item.lstrip('-').isdigit():
+                    chat_ids.append(int(item))
+                else:
+                    # Generate consistent fake ID for migration
+                    fake_id = hash(item) % 1000000000
+                    chat_ids.append(fake_id)
+        return chat_ids
+    
+    def export_channels_config(self, bot_channels: List[Dict], user_channels: List[Dict]):
+        """Export channels configuration with backup - enhanced format"""
         try:
             # Create backup if file exists
             if self.channels_file.exists():
                 self._create_backup('channels')
             
-            # Export current config
+            # Export enhanced config
             config = {
                 "channels": bot_channels,
                 "user_monitored_channels": user_channels,
                 "export_timestamp": datetime.now().isoformat(),
                 "total_bot_channels": len(bot_channels),
-                "total_user_channels": len(user_channels)
+                "total_user_channels": len(user_channels),
+                "format_version": "2.0"  # Mark as enhanced format
             }
             
             with open(self.channels_file, 'w') as f:
                 json.dump(config, f, indent=2)
             
-            logger.info(f"Exported channels config: {len(bot_channels)} bot, {len(user_channels)} user")
+            logger.info(f"Exported enhanced channels config: {len(bot_channels)} bot, {len(user_channels)} user")
             
             # Update internal state
-            self.channels_to_monitor = bot_channels
-            self.user_monitored_channels = user_channels
+            self.channels_to_monitor = self._extract_chat_ids(bot_channels)
+            self.user_monitored_channels = self._extract_chat_ids(user_channels)
             
         except Exception as e:
             logger.error(f"Failed to export channels config: {e}")
@@ -193,21 +254,19 @@ class ConfigManager:
             logger.error(f"Failed to load users config: {e}")
             return []
     
-    # Legacy methods for compatibility
-    def get_channels_to_monitor(self) -> List[str]:
-        """Get list of channels for bot to monitor"""
+    # Legacy methods for compatibility with existing code
+    def get_channels_to_monitor(self) -> List[int]:
+        """Get list of chat IDs for bot to monitor"""
         return self.channels_to_monitor.copy()
     
-    def get_user_monitored_channels(self) -> List[str]:
-        """Get list of channels for user account to monitor"""
+    def get_user_monitored_channels(self) -> List[int]:
+        """Get list of chat IDs for user account to monitor"""
         return self.user_monitored_channels.copy()
     
     def is_monitored_channel(self, chat_id: int, username: str = None) -> bool:
         """Check if a channel is being monitored by BOT"""
-        channel_username = f"@{username}" if username else str(chat_id)
-        return channel_username in self.channels_to_monitor or str(chat_id) in self.channels_to_monitor
+        return chat_id in self.channels_to_monitor
     
     def is_user_monitored_channel(self, chat_id: int, username: str = None) -> bool:
         """Check if a channel is being monitored by USER ACCOUNT"""
-        channel_username = f"@{username}" if username else str(chat_id)
-        return channel_username in self.user_monitored_channels or str(chat_id) in self.user_monitored_channels
+        return chat_id in self.user_monitored_channels

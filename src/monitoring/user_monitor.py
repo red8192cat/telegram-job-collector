@@ -1,16 +1,18 @@
 """
-User Account Monitor with Admin-Only Authentication
-Production version with dynamic channel management - FIXED VERSION
+User Account Monitor - ROBUST VERSION
+FIXES: Event loop compatibility, better error handling, production-ready
 """
 
 import asyncio
 import logging
 import os
-import json
 from datetime import datetime
 from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
-from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError
+from telethon.errors import (
+    SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError,
+    FloodWaitError, RPCError, AuthKeyUnregisteredError, UserDeactivatedError
+)
 
 from storage.sqlite_manager import SQLiteManager
 from matching.keywords import KeywordMatcher
@@ -28,7 +30,14 @@ class UserAccountMonitor:
         self.monitored_entities = {}
         self.enabled = False
         
-        # Authentication state
+        # Connection management - ROBUST
+        self._connected = False
+        self._keep_alive_task = None
+        self._reconnect_attempts = 0
+        self._max_reconnect_attempts = 3
+        self._shutdown_event = None  # Will be created when needed
+        
+        # Authentication state - ROBUST
         self.auth_phone = None
         self.auth_phone_hash = None
         self.waiting_for_code = False
@@ -36,37 +45,42 @@ class UserAccountMonitor:
         self.expected_user_id = None
         self.event_handler_registered = False
         
+        # Configuration - ROBUST
+        self.operation_timeout = 15
+        self.keep_alive_interval = 600  # 10 minutes
+        self.reconnect_delay = 30
+        
         # SECURITY: Get authorized admin ID
         self.authorized_admin_id = None
         admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
         if admin_id_str and admin_id_str.isdigit():
             self.authorized_admin_id = int(admin_id_str)
-            logger.info(f"Authorized admin ID: {self.authorized_admin_id}")
+            logger.info(f"User Monitor: Authorized admin ID: {self.authorized_admin_id}")
         
-        # Only initialize if credentials are available
+        # Initialize client if credentials are available
         if self._has_credentials():
             try:
                 api_id = int(os.getenv('API_ID'))
                 api_hash = os.getenv('API_HASH')
                 session_name = os.getenv('SESSION_NAME', 'user_monitor')
                 
-                self.client = TelegramClient(f'data/{session_name}', api_id, api_hash)
+                # Use absolute path for session file
+                session_path = os.path.abspath(f'data/{session_name}')
+                
+                self.client = TelegramClient(session_path, api_id, api_hash)
                 self.enabled = True
                 self.auth_phone = os.getenv('PHONE_NUMBER')
-                logger.info("User account monitor initialized (credentials found)")
+                logger.info("✅ User monitor client created successfully")
             except Exception as e:
-                logger.warning(f"User monitor initialization failed: {e}")
+                logger.error(f"❌ User monitor client creation failed: {e}")
                 self.enabled = False
         else:
-            logger.info("User account monitor disabled (no credentials provided)")
+            logger.info("ℹ️ User monitor disabled (no credentials provided)")
     
     def _has_credentials(self):
         """Check if user account credentials are provided"""
-        return all([
-            os.getenv('API_ID'),
-            os.getenv('API_HASH'),
-            os.getenv('PHONE_NUMBER')
-        ])
+        required_vars = ['API_ID', 'API_HASH', 'PHONE_NUMBER']
+        return all(os.getenv(var) for var in required_vars)
     
     def is_authorized_admin(self, user_id: int):
         """Check if user is authorized admin"""
@@ -74,115 +88,309 @@ class UserAccountMonitor:
             return True  # Allow during initial setup
         return user_id == self.authorized_admin_id
     
+    def is_connected(self):
+        """Check if client is connected"""
+        return (self._connected and 
+                self.client and 
+                self.client.is_connected() and 
+                not (self._shutdown_event and self._shutdown_event.is_set()))
+    
     async def initialize(self):
-        """Initialize the user client and set up monitoring"""
+        """Initialize the user client - ROBUST VERSION"""
         if not self.enabled or not self.client:
-            logger.info("User monitor not enabled - skipping initialization")
-            return False
+            logger.info("ℹ️ User monitor not enabled - skipping initialization")
+            return True
         
         try:
-            await self.client.connect()
+            # Create shutdown event if not exists
+            if not self._shutdown_event:
+                self._shutdown_event = asyncio.Event()
             
+            logger.info("🔄 Connecting user monitor client...")
+            
+            # Connect with timeout and retry logic
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    await asyncio.wait_for(self.client.connect(), timeout=20)
+                    self._connected = True
+                    logger.info("✅ User monitor client connected")
+                    break
+                except asyncio.TimeoutError:
+                    logger.warning(f"⚠️ Connection timeout (attempt {attempt + 1}/{max_retries})")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(5)
+                    else:
+                        raise
+                except Exception as e:
+                    logger.error(f"❌ Connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(5)
+                    else:
+                        raise
+            
+            # Check authorization
             if not await self.client.is_user_authorized():
-                logger.info("User account not authorized - starting authentication process")
+                logger.info("🔐 User account not authorized - starting authentication")
                 await self._start_auth_process()
-                return False
+                return False  # Authentication needed
             else:
-                logger.info("User account already authorized")
-                me = await self.client.get_me()
-                self.expected_user_id = me.id
-                logger.info(f"Authorized as: {me.first_name} {me.last_name or ''} (ID: {me.id})")
+                logger.info("✅ User account already authorized")
                 
-                # Initialize database and load channels
-                await self._init_channels_database()
-                await self.update_monitored_entities()
-                await self._register_event_handler()
+                # Get user info with timeout
+                try:
+                    me = await asyncio.wait_for(self.client.get_me(), timeout=10)
+                    self.expected_user_id = me.id
+                    logger.info(f"✅ Authorized as: {me.first_name} {me.last_name or ''} (ID: {me.id})")
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Timeout getting user info - continuing anyway")
                 
-                # Notify admin
-                await self._notify_admin(
-                    f"✅ **User Account Monitoring Active**\n\n"
-                    f"👤 Authenticated as: {me.first_name} {me.last_name or ''}\n"
-                    f"📊 Monitoring {len(self.monitored_entities)} channels"
-                )
+                # Initialize database and channels
+                await self._init_channels_database_safe()
+                await self._update_monitored_entities_safe()
+                await self._register_event_handler_safe()
                 
-                logger.info(f"⚙️ SYSTEM: User monitor active for {len(self.monitored_entities)} channels")
+                logger.info(f"✅ User monitor initialized for {len(self.monitored_entities)} channels")
                 return True
                 
         except Exception as e:
-            logger.error(f"Failed to initialize user monitor: {e}")
-            await self._notify_admin(f"❌ **Authentication Failed**\n\nError: {str(e)}")
+            logger.error(f"❌ Failed to initialize user monitor: {e}")
+            await self._notify_admin_safe(f"❌ **User Monitor Init Failed**\n\nError: {str(e)}")
+            return True  # Don't block bot startup
+    
+    async def start_monitoring(self):
+        """Start monitoring - ROBUST VERSION"""
+        if not self.enabled or not self.client:
+            logger.info("ℹ️ User monitor not enabled - no monitoring started")
+            return
+        
+        try:
+            # Ensure connected
+            if not self.is_connected():
+                success = await self.reconnect()
+                if not success:
+                    logger.error("❌ Cannot start monitoring - connection failed")
+                    return
+            
+            # Start keep-alive task
+            if not self._keep_alive_task or self._keep_alive_task.done():
+                self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
+                logger.info("🔄 User monitor keep-alive started")
+            
+            # Notify admin of successful start
+            channel_count = len(self.monitored_entities)
+            await self._notify_admin_safe(
+                f"✅ **User Monitor Started**\n\n"
+                f"📊 Monitoring {channel_count} channels\n"
+                f"🔄 Keep-alive active\n"
+                f"🎯 Ready for real-time forwarding\n\n"
+                f"The bot can now monitor channels where it's not admin!"
+            )
+            
+            logger.info(f"✅ User monitor started successfully - monitoring {channel_count} channels")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to start user monitor: {e}")
+            await self._notify_admin_safe(f"❌ **User Monitor Start Failed**\n\nError: {str(e)}")
+    
+    async def _keep_alive_loop(self):
+        """Keep connection alive - ROBUST VERSION"""
+        logger.info("🔄 User monitor keep-alive loop started")
+        
+        while self.enabled and not (self._shutdown_event and self._shutdown_event.is_set()):
             try:
-                await self._start_auth_process()
-            except:
-                logger.error("Could not start authentication process")
+                await asyncio.sleep(self.keep_alive_interval)
+                
+                if self._shutdown_event and self._shutdown_event.is_set():
+                    break
+                
+                # Check connection health
+                if not self.is_connected():
+                    logger.warning("⚠️ User monitor disconnected, attempting reconnect...")
+                    success = await self.reconnect()
+                    if not success:
+                        logger.error("❌ Keep-alive reconnection failed")
+                        continue
+                
+                # Health ping with timeout
+                try:
+                    await asyncio.wait_for(self.client.get_me(), timeout=10)
+                    logger.debug("✅ User monitor keep-alive ping successful")
+                    # Reset reconnect attempts on successful ping
+                    self._reconnect_attempts = 0
+                except asyncio.TimeoutError:
+                    logger.warning("⚠️ Keep-alive ping timeout")
+                    self._connected = False
+                except Exception as e:
+                    logger.warning(f"⚠️ Keep-alive ping failed: {e}")
+                    self._connected = False
+                
+            except asyncio.CancelledError:
+                logger.info("🛑 Keep-alive loop cancelled")
+                break
+            except Exception as e:
+                logger.error(f"❌ Error in keep-alive loop: {e}")
+                # Brief pause before continuing
+                await asyncio.sleep(60)
+        
+        logger.info("🛑 Keep-alive loop stopped")
+    
+    async def reconnect(self):
+        """Attempt to reconnect - ROBUST VERSION"""
+        if self._reconnect_attempts >= self._max_reconnect_attempts:
+            logger.error(f"❌ Max reconnection attempts ({self._max_reconnect_attempts}) reached")
+            await self._notify_admin_safe(
+                "❌ **User Monitor Disconnected**\n\n"
+                "Max reconnection attempts reached.\n"
+                "Use `/auth_restart` to retry manually."
+            )
+            return False
+        
+        self._reconnect_attempts += 1
+        logger.info(f"🔄 Attempting reconnection {self._reconnect_attempts}/{self._max_reconnect_attempts}...")
+        
+        try:
+            # Disconnect first if partially connected
+            if self.client and self.client.is_connected():
+                await self.client.disconnect()
+                await asyncio.sleep(3)
+            
+            # Reconnect with timeout
+            await asyncio.wait_for(self.client.connect(), timeout=25)
+            self._connected = True
+            
+            # Verify authentication
+            if await self.client.is_user_authorized():
+                # Re-register event handlers
+                await self._register_event_handler_safe()
+                logger.info(f"✅ User monitor reconnected successfully (attempt {self._reconnect_attempts})")
+                return True
+            else:
+                logger.error("❌ User monitor reconnected but not authorized")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Reconnection attempt {self._reconnect_attempts} failed: {e}")
+            # Exponential backoff
+            delay = min(self.reconnect_delay * (2 ** (self._reconnect_attempts - 1)), 300)
+            await asyncio.sleep(delay)
             return False
     
-    async def _init_channels_database(self):
-        """Initialize channels database from config.json"""
-        await self.data_manager.init_channels_table()
-        
-        # Import from config.json if database is empty
-        existing_channels = await self.data_manager.get_user_monitored_channels_db()
-        if not existing_channels:
-            config_channels = self.config_manager.get_user_monitored_channels()
-            for channel in config_channels:
-                await self.data_manager.add_channel_db(channel, 'user')
-            logger.info(f"⚙️ SYSTEM: Imported {len(config_channels)} channels from config.json")
+    async def _init_channels_database_safe(self):
+        """Initialize channels database - ROBUST VERSION"""
+        try:
+            await self.data_manager.init_channels_table()
+            
+            # Import from config if database is empty
+            existing_channels = await self.data_manager.get_user_monitored_channels_db()
+            if not existing_channels:
+                config_channels = self.config_manager.get_user_monitored_channels()
+                
+                if config_channels:
+                    valid_channels = []
+                    for channel in config_channels:
+                        if self._is_valid_channel_entry(channel):
+                            valid_channels.append(channel)
+                        else:
+                            logger.warning(f"⚠️ Skipping invalid channel entry: {channel}")
+                    
+                    if valid_channels:
+                        for channel_id in valid_channels:
+                            await self.data_manager.add_channel_simple(channel_id, None, 'user')
+                        
+                        logger.info(f"✅ Imported {len(valid_channels)} valid channels from config")
+                    else:
+                        logger.info("ℹ️ No valid channels found in config")
+                else:
+                    logger.info("ℹ️ No user channels configured")
+        except Exception as e:
+            logger.error(f"❌ Error initializing channels database: {e}")
     
-    async def _register_event_handler(self):
-        """Register event handler AFTER authentication is complete"""
+    def _is_valid_channel_entry(self, channel):
+        """Validate if a channel entry is valid"""
+        try:
+            # Must be a negative number (channel) or large positive (supergroup)
+            if isinstance(channel, int):
+                return channel < 0 or channel > 1000000000
+            elif isinstance(channel, str):
+                if channel.startswith('@'):
+                    return True
+                elif channel.lstrip('-').isdigit():
+                    return int(channel) < 0
+            return False
+        except Exception:
+            return False
+    
+    async def _register_event_handler_safe(self):
+        """Register event handler - ROBUST VERSION"""
         if self.event_handler_registered:
             return
         
         try:
             @self.client.on(events.NewMessage)
             async def handle_new_message(event):
-                await self.process_channel_message(event)
+                try:
+                    await self.process_channel_message(event)
+                except Exception as e:
+                    logger.error(f"❌ Error processing channel message: {e}")
             
             self.event_handler_registered = True
-            logger.info("📨 EVENT: Message event handler registered successfully")
+            logger.info("✅ Message event handler registered")
             
         except Exception as e:
-            logger.error(f"Failed to register event handler: {e}")
-            await self._notify_admin(f"❌ **Event Handler Error**: {str(e)}")
+            logger.error(f"❌ Failed to register event handler: {e}")
     
     async def _start_auth_process(self):
-        """Start authentication and notify admin"""
+        """Start authentication - ROBUST VERSION"""
         try:
-            result = await self.client.send_code_request(self.auth_phone)
+            logger.info(f"🔐 Starting authentication for {self.auth_phone}")
+            
+            result = await asyncio.wait_for(
+                self.client.send_code_request(self.auth_phone),
+                timeout=25
+            )
+            
             self.auth_phone_hash = result.phone_code_hash
             self.waiting_for_code = True
             
-            logger.info(f"🔐 AUTH: Authentication code sent to {self.auth_phone}")
+            logger.info(f"✅ Authentication code sent to {self.auth_phone}")
             
-            await self._notify_admin(
-                f"🔐 **Authentication Required**\n\n"
+            await self._notify_admin_safe(
+                f"🔐 **User Monitor Authentication Required**\n\n"
                 f"📱 SMS code sent to: {self.auth_phone}\n"
-                f"📨 Please send the verification code to this chat\n\n"
-                f"Commands: `/auth_status` `/auth_restart`"
+                f"📨 **Send the verification code to this chat**\n\n"
+                f"**Available commands:**\n"
+                f"• `/auth_status` - Check authentication status\n"
+                f"• `/auth_restart` - Restart authentication process\n\n"
+                f"Just send the code (numbers only) when you receive it."
             )
                     
-        except PhoneNumberInvalidError:
-            logger.error(f"🔐 AUTH: Invalid phone number: {self.auth_phone}")
-            await self._notify_admin(f"❌ **Invalid Phone Number**\n\n{self.auth_phone}")
+        except asyncio.TimeoutError:
+            logger.error("❌ Authentication timeout - failed to send SMS code")
+            await self._notify_admin_safe("❌ **Authentication Timeout**\n\nFailed to send SMS code. Use `/auth_restart` to retry.")
         except Exception as e:
-            logger.error(f"🔐 AUTH: Authentication error: {e}")
-            await self._notify_admin(f"❌ **Authentication Error**\n\n{str(e)}")
+            logger.error(f"❌ Authentication error: {e}")
+            await self._notify_admin_safe(f"❌ **Authentication Error**\n\n{str(e)}\n\nUse `/auth_restart` to retry.")
     
-    async def _notify_admin(self, message: str):
-        """Send notification to authorized admin"""
-        if self.authorized_admin_id and self.bot_instance:
-            try:
-                await self.bot_instance.send_message(
+    async def _notify_admin_safe(self, message: str):
+        """Send notification to admin - ROBUST VERSION"""
+        if not self.authorized_admin_id or not self.bot_instance:
+            return
+        
+        try:
+            await asyncio.wait_for(
+                self.bot_instance.send_message(
                     chat_id=self.authorized_admin_id,
                     text=message,
                     parse_mode='Markdown'
-                )
-            except Exception as e:
-                logger.error(f"Failed to notify admin: {e}")
+                ),
+                timeout=10
+            )
+        except Exception as e:
+            logger.error(f"❌ Failed to notify admin: {e}")
     
     async def handle_auth_message(self, user_id: int, message_text: str):
-        """Handle authentication messages - ADMIN ONLY"""
+        """Handle authentication messages - ROBUST VERSION"""
         if not self.is_authorized_admin(user_id):
             return False
         
@@ -190,98 +398,115 @@ class UserAccountMonitor:
             if self.waiting_for_code:
                 code = message_text.strip()
                 if not code.isdigit() or len(code) < 4:
-                    await self._send_auth_message(user_id, "❌ Please send only the numeric verification code")
+                    await self._send_auth_message_safe(user_id, "❌ Please send only the numeric verification code (4-6 digits)")
                     return True
                 
                 try:
-                    result = await self.client.sign_in(phone=self.auth_phone, code=code, phone_code_hash=self.auth_phone_hash)
+                    result = await asyncio.wait_for(
+                        self.client.sign_in(phone=self.auth_phone, code=code, phone_code_hash=self.auth_phone_hash),
+                        timeout=25
+                    )
                     
                     self.waiting_for_code = False
                     self.expected_user_id = result.id
                     
-                    await self._send_auth_message(
+                    await self._send_auth_message_safe(
                         user_id, 
-                        f"✅ **Authentication Successful!**\n\n"
+                        f"🎉 **Authentication Successful!**\n\n"
                         f"👤 Authenticated as: {result.first_name} {result.last_name or ''}\n"
-                        f"🎯 User account monitoring is now active!"
+                        f"🎯 User account monitoring is now active!\n\n"
+                        f"The bot will now initialize user channels..."
                     )
                     
-                    logger.info(f"🔐 AUTH: User authentication successful for {result.first_name} {result.last_name or ''}")
-                    await self._complete_initialization()
+                    logger.info(f"✅ User authentication successful")
+                    await self._complete_initialization_safe()
                     return True
                     
                 except SessionPasswordNeededError:
                     self.waiting_for_code = False
                     self.waiting_for_2fa = True
-                    await self._send_auth_message(user_id, "🔐 **Two-Factor Authentication Required**\n\nPlease send your 2FA password:")
+                    await self._send_auth_message_safe(user_id, "🔐 **Two-Factor Authentication Required**\n\nPlease send your 2FA password:")
                     return True
                     
-                except PhoneCodeInvalidError:
-                    await self._send_auth_message(user_id, "❌ **Invalid Code**\n\nPlease try again:")
+                except Exception as e:
+                    await self._send_auth_message_safe(user_id, f"❌ **Authentication Error**\n\n{str(e)}\n\nUse `/auth_restart` to retry.")
                     return True
                     
             elif self.waiting_for_2fa:
                 password = message_text.strip()
                 
                 try:
-                    result = await self.client.sign_in(password=password)
+                    result = await asyncio.wait_for(
+                        self.client.sign_in(password=password),
+                        timeout=25
+                    )
                     
                     self.waiting_for_2fa = False
                     self.expected_user_id = result.id
                     
-                    await self._send_auth_message(
+                    await self._send_auth_message_safe(
                         user_id,
-                        f"✅ **2FA Authentication Successful!**\n\n"
+                        f"🎉 **2FA Authentication Successful!**\n\n"
                         f"👤 Authenticated as: {result.first_name} {result.last_name or ''}\n"
-                        f"🎯 User account monitoring is now active!"
+                        f"🎯 User account monitoring is now active!\n\n"
+                        f"The bot will now initialize user channels..."
                     )
                     
-                    logger.info(f"🔐 AUTH: User 2FA authentication successful")
-                    await self._complete_initialization()
+                    logger.info(f"✅ User 2FA authentication successful")
+                    await self._complete_initialization_safe()
                     return True
                     
-                except Exception:
-                    await self._send_auth_message(user_id, "❌ **Invalid 2FA Password**\n\nPlease try again:")
+                except Exception as e:
+                    await self._send_auth_message_safe(user_id, f"❌ **Invalid 2FA Password**\n\n{str(e)}\n\nPlease try again:")
                     return True
             
         except Exception as e:
-            logger.error(f"🔐 AUTH: Authentication error: {e}")
-            await self._send_auth_message(user_id, f"❌ **Authentication Error**\n\n{str(e)}")
+            logger.error(f"❌ Authentication error: {e}")
+            await self._send_auth_message_safe(user_id, f"❌ **Authentication Error**\n\n{str(e)}")
             return True
         
         return False
     
-    async def _complete_initialization(self):
-        """Complete initialization after successful authentication"""
+    async def _complete_initialization_safe(self):
+        """Complete initialization after authentication - ROBUST VERSION"""
         try:
-            await self._init_channels_database()
-            await self.update_monitored_entities()
-            await self._register_event_handler()
+            await self._init_channels_database_safe()
+            await self._update_monitored_entities_safe()
+            await self._register_event_handler_safe()
             
             channel_count = len(self.monitored_entities)
-            await self._notify_admin(
-                f"🎉 **Setup Complete!**\n\n"
-                f"📊 Monitoring {channel_count} channels\n"
-                f"🚀 User account monitoring is active!"
+            await self._notify_admin_safe(
+                f"🎉 **User Monitor Setup Complete!**\n\n"
+                f"✅ Authentication successful\n"
+                f"📊 Monitoring {channel_count} user channels\n"
+                f"🔄 Real-time forwarding active\n\n"
+                f"**What this enables:**\n"
+                f"• Monitor any public channel (even without bot admin)\n"
+                f"• Real-time job forwarding from user channels\n"
+                f"• Expanded job collection capabilities\n\n"
+                f"Use `/admin add_user_channel @channel` to add more channels!"
             )
             
-            logger.info(f"⚙️ SYSTEM: User monitor initialization completed - monitoring {channel_count} channels")
+            logger.info(f"✅ User monitor setup completed - monitoring {channel_count} channels")
             
         except Exception as e:
-            logger.error(f"Failed to complete initialization: {e}")
-            await self._notify_admin(f"❌ **Setup Error**\n\n{str(e)}")
+            logger.error(f"❌ Failed to complete initialization: {e}")
+            await self._notify_admin_safe(f"❌ **Setup Error**\n\n{str(e)}")
     
-    async def _send_auth_message(self, user_id: int, message: str):
-        """Send authentication message to admin"""
+    async def _send_auth_message_safe(self, user_id: int, message: str):
+        """Send authentication message - ROBUST VERSION"""
         if self.bot_instance:
             try:
-                await self.bot_instance.send_message(
-                    chat_id=user_id, 
-                    text=message,
-                    parse_mode='Markdown'
+                await asyncio.wait_for(
+                    self.bot_instance.send_message(
+                        chat_id=user_id, 
+                        text=message,
+                        parse_mode='Markdown'
+                    ),
+                    timeout=10
                 )
             except Exception as e:
-                logger.error(f"Failed to send auth message: {e}")
+                logger.error(f"❌ Failed to send auth message: {e}")
     
     def is_waiting_for_auth(self):
         """Check if monitor is waiting for authentication"""
@@ -297,342 +522,291 @@ class UserAccountMonitor:
             return "waiting_for_code"
         elif self.waiting_for_2fa:
             return "waiting_for_2fa"
-        elif self.expected_user_id:
+        elif self.expected_user_id and self.is_connected():
             return "authenticated"
         else:
             return "not_authenticated"
     
     async def restart_auth(self, user_id: int):
-        """Restart authentication - ADMIN ONLY"""
+        """Restart authentication - ROBUST VERSION"""
         if not self.is_authorized_admin(user_id):
             return False
         
+        # Reset authentication state
         self.waiting_for_code = False
         self.waiting_for_2fa = False
         self.auth_phone_hash = None
         
-        await self._start_auth_process()
-        return True
-    
-    async def update_monitored_entities(self):
-        """Update the list of entities to monitor from database - SIMPLIFIED VERSION"""
-        if not self.enabled or not await self.client.is_user_authorized():
-            return
-            
-        channels = await self.data_manager.get_user_monitored_channels_db()
-        self.monitored_entities = {}
-        
-        if not channels:
-            logger.info("⚙️ SYSTEM: No user-monitored channels in database")
-            return
-        
-        valid_channels = []
-        invalid_channels = []
-        
-        for channel_identifier in channels:
-            try:
-                if channel_identifier.startswith('@'):
-                    entity = await self.client.get_entity(channel_identifier)
-                elif channel_identifier.startswith('-'):
-                    entity = await self.client.get_entity(int(channel_identifier))
-                else:
-                    entity = await self.client.get_entity(channel_identifier)
-                
-                # If we can get the entity, assume we have access
-                # Don't do expensive membership checks on startup
-                self.monitored_entities[entity.id] = {
-                    'entity': entity,
-                    'identifier': channel_identifier
-                }
-                valid_channels.append(channel_identifier)
-                logger.info(f"✅ STARTUP: User monitor loaded: {channel_identifier}")
-                
-            except Exception as e:
-                invalid_channels.append(channel_identifier)
-                logger.error(f"❌ STARTUP: Failed to load user channel {channel_identifier}: {e}")
-        
-        # Only notify about issues if there are any
-        if invalid_channels:
-            await self._notify_admin(
-                f"⚠️ **Channel Loading Issues**\n\n"
-                f"✅ Loaded channels: {len(valid_channels)}\n"
-                f"❌ Failed to load: {len(invalid_channels)}\n\n"
-                f"**Issues found:**\n" + 
-                "\n".join([f"• {ch}" for ch in invalid_channels]) +
-                f"\n\nUse `/admin channels` to review"
-            )
-        else:
-            logger.info(f"⚙️ SYSTEM: All {len(valid_channels)} user channels loaded successfully")
-    
-    async def _check_channel_membership(self, entity, channel_identifier):
-        """Check if user account is a member of the channel - FIXED VERSION"""
         try:
-            # Get current user
-            me = await self.client.get_me()
-            
-            # For channels, try a simpler approach first
-            if hasattr(entity, 'broadcast') and entity.broadcast:
-                # This is a channel - try to get entity again to check access
-                try:
-                    # If we can get the entity, we likely have access
-                    await self.client.get_entity(entity.id)
-                    return True
-                except Exception:
-                    return False
-            
-            # For groups, try the participants approach with error handling
-            try:
-                # Try to get a small number of participants
-                participants = await self.client.get_participants(entity, limit=1)
-                
-                # If we got here, we have access - now check if we're a member
-                async for participant in self.client.iter_participants(entity, limit=10):
-                    if participant.id == me.id:
-                        return True
-                
-                # We can see participants but we're not in the list
-                return False
-                
-            except Exception as e:
-                # If we can't get participants, we're probably not a member
-                logger.debug(f"Cannot access participants for {channel_identifier}: {e}")
-                return False
-                
+            await self._start_auth_process()
+            return True
         except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Error checking membership for {channel_identifier}: {e}")
+            logger.error(f"❌ Failed to restart authentication: {e}")
             return False
     
-    async def add_channel(self, channel_identifier: str):
-        """Add new channel to monitoring with auto-join - FIXED VERSION"""
-        if not self.enabled or not await self.client.is_user_authorized():
-            return False, "User monitor not authenticated"
-
-        try:
-            # Validate and get channel entity
-            if channel_identifier.startswith('@'):
-                entity = await self.client.get_entity(channel_identifier)
-            elif channel_identifier.startswith('-'):
-                entity = await self.client.get_entity(int(channel_identifier))
-            else:
-                entity = await self.client.get_entity(channel_identifier)
-
-            # Check if already in database
-            existing_channels = await self.data_manager.get_user_monitored_channels_db()
-            if channel_identifier in existing_channels:
-                return False, "Channel already exists in monitoring list"
-
-            # Try to join the channel FIRST (don't check membership beforehand)
-            try:
-                from telethon.tl.functions.channels import JoinChannelRequest
-                await self.client(JoinChannelRequest(entity))
-                logger.info(f"⚙️ SYSTEM: Successfully joined channel: {channel_identifier}")
-                join_status = "joined and monitoring"
-                
-            except Exception as join_error:
-                # Check if the error is because we're already a member
-                error_msg = str(join_error).lower()
-                if any(phrase in error_msg for phrase in ["already", "participant", "member"]):
-                    logger.info(f"⚙️ SYSTEM: Already member of: {channel_identifier}")
-                    join_status = "already joined, now monitoring"
-                else:
-                    # Real join failure
-                    logger.error(f"⚙️ SYSTEM: Failed to join {channel_identifier}: {join_error}")
-                    return False, f"❌ Cannot join channel: {str(join_error)}"
-
-            # If we got here, we successfully joined or were already a member
-            # Add to database
-            success = await self.data_manager.add_channel_db(channel_identifier, 'user')
-            if not success:
-                return False, "Failed to add channel to database"
-
-            # Add to monitored entities
-            self.monitored_entities[entity.id] = {
-                'entity': entity,
-                'identifier': channel_identifier
-            }
-
-            # Update config.json
-            await self._export_config()
-
-            logger.info(f"⚙️ SYSTEM: Added user channel: {channel_identifier}")
-            return True, f"✅ Successfully {join_status}: {channel_identifier}"
-
-        except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Failed to add channel {channel_identifier}: {e}")
-            return False, f"❌ Cannot access channel: {str(e)}"
-    
-    async def remove_channel(self, channel_identifier: str):
-        """Remove channel from monitoring with auto-leave"""
-        try:
-            # Check if in database
-            existing_channels = await self.data_manager.get_user_monitored_channels_db()
-            if channel_identifier not in existing_channels:
-                return False, "Channel not found in monitoring list"
+    async def _update_monitored_entities_safe(self):
+        """Update monitored entities - ROBUST VERSION"""
+        if not self.enabled or not self.is_connected():
+            logger.info("ℹ️ User monitor not connected - skipping entity update")
+            return
             
-            # Get entity and leave channel
-            leave_status = "stopped monitoring"
-            if self.enabled and await self.client.is_user_authorized():
+        try:
+            user_channels = await self.data_manager.get_simple_user_channels()
+            self.monitored_entities = {}
+            
+            if not user_channels:
+                logger.info("ℹ️ No user-monitored channels in database")
+                return
+            
+            valid_channels = []
+            invalid_channels = []
+            
+            for chat_id in user_channels:
                 try:
-                    if channel_identifier.startswith('@'):
-                        entity = await self.client.get_entity(channel_identifier)
-                    elif channel_identifier.startswith('-'):
-                        entity = await self.client.get_entity(int(channel_identifier))
-                    else:
-                        entity = await self.client.get_entity(channel_identifier)
+                    # Skip obviously invalid user IDs
+                    if 0 < chat_id < 1000000000:
+                        logger.warning(f"⚠️ Skipping invalid user ID as channel: {chat_id}")
+                        invalid_channels.append(chat_id)
+                        await self.data_manager.remove_channel_simple(chat_id, 'user')
+                        continue
                     
-                    # Auto-leave the channel
-                    from telethon.tl.functions.channels import LeaveChannelRequest
-                    await self.client(LeaveChannelRequest(entity))
-                    logger.info(f"⚙️ SYSTEM: Auto-left channel: {channel_identifier}")
-                    leave_status = "left and stopped monitoring"
+                    # Get entity with timeout
+                    entity = await asyncio.wait_for(
+                        self.client.get_entity(chat_id),
+                        timeout=20
+                    )
                     
-                    # Remove from monitored entities
-                    entity_id_to_remove = None
-                    for entity_id, info in self.monitored_entities.items():
-                        if info['identifier'] == channel_identifier:
-                            entity_id_to_remove = entity_id
-                            break
+                    # Store entity info
+                    self.monitored_entities[entity.id] = {
+                        'entity': entity,
+                        'chat_id': chat_id,
+                        'identifier': f"@{entity.username}" if hasattr(entity, 'username') and entity.username else f"Channel {chat_id}"
+                    }
+                    valid_channels.append(chat_id)
                     
-                    if entity_id_to_remove:
-                        del self.monitored_entities[entity_id_to_remove]
-                        
-                except Exception as leave_error:
-                    logger.warning(f"⚙️ SYSTEM: Could not leave {channel_identifier}: {leave_error}")
-                    leave_status = "stopped monitoring (could not leave channel)"
+                    display_name = await self.data_manager.get_channel_display_name(chat_id)
+                    logger.info(f"✅ User monitor loaded: {display_name}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"❌ Timeout loading user channel {chat_id}")
+                    invalid_channels.append(chat_id)
+                except Exception as e:
+                    logger.error(f"❌ Failed to load user channel {chat_id}: {e}")
+                    invalid_channels.append(chat_id)
+                    # Clean up invalid entries
+                    await self.data_manager.remove_channel_simple(chat_id, 'user')
             
-            # Remove from database
-            success = await self.data_manager.remove_channel_db(channel_identifier, 'user')
-            if not success:
-                return False, "Failed to remove channel from database"
+            # Notify about results
+            if invalid_channels:
+                await self._notify_admin_safe(
+                    f"⚠️ **User Channel Loading Issues**\n\n"
+                    f"✅ Successfully loaded: {len(valid_channels)}\n"
+                    f"❌ Removed invalid entries: {len(invalid_channels)}\n"
+                    f"🧹 Database cleaned automatically"
+                )
             
-            # Update config.json
-            await self._export_config()
-            
-            logger.info(f"⚙️ SYSTEM: Removed user channel: {channel_identifier}")
-            return True, f"✅ Successfully {leave_status}: {channel_identifier}"
-            
+            if valid_channels:
+                logger.info(f"✅ All {len(valid_channels)} user channels loaded successfully")
+            else:
+                logger.info(f"ℹ️ No valid user channels found")
+                
         except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Failed to remove channel {channel_identifier}: {e}")
-            return False, f"❌ Error removing channel: {str(e)}"
+            logger.error(f"❌ Error updating monitored entities: {e}")
+            self.monitored_entities = {}
     
-    async def get_monitored_channels(self):
-        """Get list of currently monitored channels"""
-        channels = await self.data_manager.get_user_monitored_channels_db()
-        return channels
+    async def update_monitored_entities(self):
+        """Public method to update monitored entities"""
+        await self._update_monitored_entities_safe()
     
-    async def _export_config(self):
-        """Export current database state to config files"""
-        try:
-            # Get channels from database
-            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
-            
-            # Export to config file
-            self.config_manager.export_channels_config(bot_channels, user_channels)
-            
-            logger.info("⚙️ SYSTEM: Exported channels to config files")
-            
-        except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Failed to export config: {e}")
     async def process_channel_message(self, event):
-        """Process new message from user-monitored channels"""
+        """Process new message from channels - ROBUST VERSION"""
         if not self.enabled or not event.message or not event.message.text:
             return
         
-        chat_id = event.chat_id
-        
-        # Convert chat_id to entity_id for lookup
-        entity_id = None
-        if chat_id < 0 and str(chat_id).startswith('-100'):
-            entity_id = int(str(chat_id)[4:])  # Remove -100 prefix
-        else:
-            entity_id = abs(chat_id) if chat_id < 0 else chat_id
-        
-        # Check if monitored
-        lookup_id = entity_id if entity_id in self.monitored_entities else chat_id
-        if lookup_id not in self.monitored_entities:
-            return
-        
-        channel_info = self.monitored_entities[lookup_id]
-        message_text = event.message.text
-        
-        logger.info(f"📨 EVENT: Processing message from {channel_info['identifier']}")
-        
-        # Get users and process keywords
-        all_users = await self.data_manager.get_all_users_with_keywords()
-        forwarded_count = 0
-        
-        for user_chat_id, keywords in all_users.items():
-            if user_chat_id <= 0:
-                continue
+        try:
+            chat_id = event.chat_id
             
-            if not await self.data_manager.check_user_limit(user_chat_id):
-                continue
+            # Convert chat_id to entity_id for lookup
+            entity_id = None
+            if chat_id < 0 and str(chat_id).startswith('-100'):
+                entity_id = int(str(chat_id)[4:])  # Remove -100 prefix
+            else:
+                entity_id = abs(chat_id) if chat_id < 0 else chat_id
             
-            if not self.keyword_matcher.matches_user_keywords(message_text, keywords):
-                continue
+            # Check if monitored
+            lookup_id = entity_id if entity_id in self.monitored_entities else chat_id
+            if lookup_id not in self.monitored_entities:
+                return
             
-            ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_chat_id)
-            if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
-                continue
+            channel_info = self.monitored_entities[lookup_id]
+            message_text = event.message.text
             
-            if self.bot_instance:
+            # Get display name
+            display_name = channel_info.get('identifier', f"Channel {chat_id}")
+            logger.info(f"📨 User monitor processing message from {display_name}")
+            
+            # Get users with timeout
+            try:
+                all_users = await asyncio.wait_for(
+                    self.data_manager.get_all_users_with_keywords(), 
+                    timeout=15
+                )
+            except asyncio.TimeoutError:
+                logger.warning("⚠️ Timeout getting users for message processing")
+                return
+            
+            forwarded_count = 0
+            
+            for user_chat_id, keywords in all_users.items():
+                if user_chat_id <= 0:
+                    continue
+                
                 try:
-                    await self.forward_message_via_bot(user_chat_id, event.message, chat_id)
-                    forwarded_count += 1
-                    await asyncio.sleep(0.5)
+                    # Check user limits
+                    if not await asyncio.wait_for(
+                        self.data_manager.check_user_limit(user_chat_id), 
+                        timeout=5
+                    ):
+                        continue
+                    
+                    # Check keyword matching
+                    if not self.keyword_matcher.matches_user_keywords(message_text, keywords):
+                        continue
+                    
+                    # Check ignore keywords
+                    ignore_keywords = await asyncio.wait_for(
+                        self.data_manager.get_user_ignore_keywords(user_chat_id),
+                        timeout=5
+                    )
+                    if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
+                        continue
+                    
+                    # Forward message via bot
+                    if self.bot_instance:
+                        try:
+                            await asyncio.wait_for(
+                                self.forward_message_via_bot(user_chat_id, event.message, chat_id),
+                                timeout=15
+                            )
+                            forwarded_count += 1
+                            await asyncio.sleep(0.3)  # Rate limiting
+                        except Exception as e:
+                            logger.error(f"❌ Failed to forward to user {user_chat_id}: {e}")
+                
                 except Exception as e:
-                    logger.error(f"📤 FORWARD: Failed to forward to user {user_chat_id}: {e}")
-        
-        if forwarded_count > 0:
-            logger.info(f"📤 FORWARD: User monitor forwarded message to {forwarded_count} users")
+                    logger.error(f"❌ Error processing user {user_chat_id}: {e}")
+                    continue
+            
+            if forwarded_count > 0:
+                logger.info(f"📤 User monitor forwarded message to {forwarded_count} users")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in process_channel_message: {e}")
     
     async def forward_message_via_bot(self, user_chat_id, message, source_chat_id):
-        """Forward message to user via bot"""
+        """Forward message via bot - ROBUST VERSION"""
         if not self.bot_instance:
             return
         
         try:
-            # Convert chat_id to entity_id for lookup
-            entity_id = None
-            if source_chat_id < 0 and str(source_chat_id).startswith('-100'):
-                entity_id = int(str(source_chat_id)[4:])
-            else:
-                entity_id = abs(source_chat_id) if source_chat_id < 0 else source_chat_id
+            display_name = await asyncio.wait_for(
+                self.data_manager.get_channel_display_name(source_chat_id),
+                timeout=5
+            )
             
-            # Get channel name
-            source_info = self.monitored_entities.get(entity_id) or self.monitored_entities.get(source_chat_id, {})
-            source_name = source_info.get('identifier', f'Channel {source_chat_id}')
-            
-            formatted_message = f"📋 Job from {source_name}:\n\n{message.text}"
+            formatted_message = f"📋 Job from {display_name}:\n\n{message.text}"
             
             await self.bot_instance.send_message(
                 chat_id=user_chat_id,
                 text=formatted_message
             )
             
+            # Log the forward
             await self.data_manager.log_message_forward(
                 user_chat_id, source_chat_id, message.id
             )
             
         except Exception as e:
-            logger.error(f"📤 FORWARD: Error forwarding via bot: {e}")
+            logger.error(f"❌ Error forwarding via bot: {e}")
             raise
     
-    async def run_forever(self):
-        """Keep the client running"""
-        if not self.enabled or not self.client:
-            logger.info("User monitor not running (disabled)")
-            return
-            
-        logger.info("⚙️ SYSTEM: User monitor client running...")
-        try:
-            await self.client.run_until_disconnected()
-        except Exception as e:
-            logger.error(f"User monitor disconnected: {e}")
-            self.enabled = False
-    
     async def stop(self):
-        """Stop the client"""
-        if self.client:
-            await self.client.disconnect()
-            logger.info("⚙️ SYSTEM: User account monitor stopped")
+        """Stop the user monitor gracefully - ROBUST VERSION"""
+        logger.info("🛑 Stopping user monitor...")
+        
+        try:
+            # Signal shutdown
+            if self._shutdown_event:
+                self._shutdown_event.set()
+            self.enabled = False
+            
+            # Cancel keep-alive task
+            if self._keep_alive_task and not self._keep_alive_task.done():
+                self._keep_alive_task.cancel()
+                try:
+                    await asyncio.wait_for(self._keep_alive_task, timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Disconnect client
+            if self.client and self.client.is_connected():
+                await asyncio.wait_for(self.client.disconnect(), timeout=10)
+                self._connected = False
+            
+            logger.info("✅ User monitor stopped successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Error stopping user monitor: {e}")
+    
+    # Additional helper methods for channel management
+    async def add_channel(self, channel_identifier: str):
+        """Add new channel to monitoring"""
+        try:
+            if not self.is_connected():
+                return False, "User monitor not connected"
+            
+            # Try to get entity
+            entity = await asyncio.wait_for(
+                self.client.get_entity(channel_identifier),
+                timeout=20
+            )
+            
+            # Add to database
+            username = f"@{entity.username}" if hasattr(entity, 'username') and entity.username else None
+            success = await self.data_manager.add_channel_simple(entity.id, username, 'user')
+            
+            if success:
+                # Update monitored entities
+                await self._update_monitored_entities_safe()
+                return True, f"Channel added successfully: {username or entity.id}"
+            else:
+                return False, "Channel already exists"
+                
+        except Exception as e:
+            logger.error(f"❌ Error adding channel: {e}")
+            return False, f"Error adding channel: {str(e)}"
+    
+    async def remove_channel(self, chat_id: int):
+        """Remove channel from monitoring"""
+        try:
+            success = await self.data_manager.remove_channel_simple(chat_id, 'user')
+            
+            if success:
+                # Update monitored entities
+                await self._update_monitored_entities_safe()
+                return True, "Channel removed successfully"
+            else:
+                return False, "Channel not found"
+                
+        except Exception as e:
+            logger.error(f"❌ Error removing channel: {e}")
+            return False, f"Error removing channel: {str(e)}"
+    
+    async def get_monitored_channels(self):
+        """Get list of currently monitored channels"""
+        try:
+            channels = await self.data_manager.get_simple_user_channels()
+            return channels
+        except Exception as e:
+            logger.error(f"❌ Error getting monitored channels: {e}")
+            return []

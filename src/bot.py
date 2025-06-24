@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Enhanced Telegram Job Collector Bot - Main Entry Point with OPTIONAL User Account Monitoring
-The bot works perfectly without user account - it's just an optional extension!
-FIXED: Error monitoring and admin functionality independent of user monitor
+Enhanced Telegram Job Collector Bot - WITH ROBUST USER MONITOR
+INCLUDES: Proper User Monitor integration with event loop separation
 """
 
 import asyncio
 import logging
 import os
+import signal
+import sys
 
 from telegram.ext import Application
 
@@ -16,15 +17,6 @@ from handlers.callbacks import CallbackHandlers
 from handlers.messages import MessageHandlers
 from storage.sqlite_manager import SQLiteManager
 from utils.config import ConfigManager
-
-# Try to import user monitor - if dependencies missing, gracefully disable
-try:
-    from monitoring.user_monitor import UserAccountMonitor
-    USER_MONITOR_AVAILABLE = True
-except ImportError as e:
-    logging.warning(f"User monitor dependencies not available: {e}")
-    UserAccountMonitor = None
-    USER_MONITOR_AVAILABLE = False
 
 # Configure logging
 logging.basicConfig(
@@ -44,255 +36,477 @@ class JobCollectorBot:
         if admin_id_str and admin_id_str.isdigit():
             self._admin_id = int(admin_id_str)
         
-        # Initialize managers with backup support
-        logger.info("🔄 Initializing configuration manager with backup support...")
-        self.config_manager = ConfigManager()  # This will auto-backup on startup
+        # Initialize managers
+        logger.info("🔄 Initializing configuration manager...")
+        self.config_manager = ConfigManager()
         
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
         self.data_manager = SQLiteManager(db_path)
         
-        # Initialize handlers (core functionality - always works)
+        # Initialize handlers
         self.command_handlers = CommandHandlers(self.data_manager)
         self.callback_handlers = CallbackHandlers(self.data_manager)
         self.message_handlers = MessageHandlers(self.data_manager, self.config_manager)
         
-        # Initialize OPTIONAL user monitor
+        # User Monitor setup - DELAYED INITIALIZATION
         self.user_monitor = None
-        if USER_MONITOR_AVAILABLE and self._has_user_credentials():
-            self.user_monitor = UserAccountMonitor(
-                self.data_manager, 
-                self.config_manager,
-                bot_instance=None  # Will be set after app initialization
-            )
-            logger.info("User monitor extension enabled")
+        self._user_monitor_task = None
+        self._user_monitor_enabled = self._should_enable_user_monitor()
+        
+        if self._user_monitor_enabled:
+            logger.info("✅ User monitor will be enabled after event loop starts")
         else:
-            if not USER_MONITOR_AVAILABLE:
-                logger.info("User monitor extension not available (missing dependencies)")
-            else:
-                logger.info("User monitor extension disabled (no credentials)")
+            logger.info("ℹ️ User monitor disabled (missing credentials or explicitly disabled)")
         
         # Register all handlers
         self.register_handlers()
     
-    def _has_user_credentials(self):
-        """Check if user account credentials are provided"""
-        return all([
-            os.getenv('API_ID'),
-            os.getenv('API_HASH'),
-            os.getenv('PHONE_NUMBER')
-        ])
+    def _should_enable_user_monitor(self):
+        """Determine if user monitor should be enabled"""
+        # Check if explicitly disabled
+        if os.getenv('DISABLE_USER_MONITOR', '').lower() in ('true', '1', 'yes'):
+            return False
+        
+        # Check if credentials are available
+        required_vars = ['API_ID', 'API_HASH', 'PHONE_NUMBER']
+        if not all(os.getenv(var) for var in required_vars):
+            return False
+        
+        # Check if import is available
+        try:
+            from monitoring.user_monitor import UserAccountMonitor
+            return True
+        except ImportError as e:
+            logger.warning(f"User monitor dependencies not available: {e}")
+            return False
     
     def register_handlers(self):
         """Register all command and message handlers"""
-        # Command handlers (core functionality)
         self.command_handlers.register(self.app)
-        
-        # Callback handlers (core functionality)
         self.callback_handlers.register(self.app)
-        
-        # Message handlers (core bot monitoring - always active)
         self.message_handlers.register(self.app)
-        
-        logger.info("All core handlers registered successfully")
+        logger.info("✅ All core handlers registered successfully")
     
     async def start_background_tasks(self):
-        """Start background tasks"""
-        # Initialize database first
-        await self.data_manager.initialize()
-        logger.info("Database initialized successfully")
-        
-        # Import from config files if database is empty
-        await self._import_on_startup()
-        
-        # Core bot functionality is ready
-        logger.info("Core bot functionality ready")
-        
-        # FIXED: Initialize error monitoring INDEPENDENT of user monitor
-        await self._initialize_error_monitoring()
-        
-        # Validate bot channels on startup
-        await self._validate_bot_channels()
-        
-        # Initialize user monitor if available (completely separate from admin/error monitoring)
-        if self.user_monitor:
-            # Store user_monitor in bot_data for admin commands that need it
-            self.user_monitor.bot_instance = self.app.bot
-            self.app.bot_data["user_monitor"] = self.user_monitor
-            logger.info("User monitor stored in bot_data")
+        """Start background tasks - WITH USER MONITOR"""
+        try:
+            # Initialize database first
+            await self.data_manager.initialize()
+            logger.info("✅ Database initialized successfully")
             
-            try:
-                success = await self.user_monitor.initialize()
+            # Import from config files if database is empty
+            await self._import_on_startup()
+            
+            # Initialize error monitoring
+            await self._initialize_error_monitoring()
+            
+            # Validate bot channels on startup
+            await self._validate_bot_channels()
+            
+            # Set up bot menu
+            await self.setup_bot_menu()
+            
+            # Start background tasks using job queue
+            self._setup_background_tasks()
+            
+            # Initialize User Monitor AFTER event loop is stable
+            if self._user_monitor_enabled:
+                await self._initialize_user_monitor()
+            
+            logger.info("✅ Core bot initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Critical error in background tasks: {e}")
+            await self._notify_admin_safe(f"❌ **Bot Startup Error**\n\n{str(e)}")
+    
+    async def _initialize_user_monitor(self):
+        """Initialize user monitor with proper event loop handling"""
+        try:
+            logger.info("🔄 Initializing User Monitor...")
+            
+            # Import and create user monitor AFTER event loop is running
+            from monitoring.user_monitor import UserAccountMonitor
+            
+            self.user_monitor = UserAccountMonitor(
+                self.data_manager,
+                self.config_manager,
+                bot_instance=self.app.bot
+            )
+            
+            # Store in bot_data for admin commands
+            self.app.bot_data["user_monitor"] = self.user_monitor
+            
+            logger.info("✅ User monitor created successfully")
+            
+            # Start initialization in background (non-blocking)
+            self._user_monitor_task = asyncio.create_task(
+                self._user_monitor_initialization_flow()
+            )
+            
+            logger.info("🔄 User monitor initialization started in background")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize user monitor: {e}")
+            self.user_monitor = None
+            await self._notify_admin_safe(
+                f"❌ **User Monitor Initialization Failed**\n\n"
+                f"Error: {str(e)}\n\n"
+                f"Core bot functionality continues normally.\n"
+                f"Check logs for details."
+            )
+    
+    async def _user_monitor_initialization_flow(self):
+        """Complete user monitor initialization flow"""
+        try:
+            # Give the main event loop a moment to stabilize
+            await asyncio.sleep(2)
+            
+            logger.info("🔄 Starting user monitor authentication...")
+            success = await self.user_monitor.initialize()
+            
+            if success:
+                logger.info("✅ User monitor authenticated successfully")
+                
+                # Start monitoring
+                await self.user_monitor.start_monitoring()
+                
+                # Notify admin of success
+                channel_count = len(self.user_monitor.monitored_entities)
+                await self._notify_admin_safe(
+                    f"🎉 **User Monitor Active!**\n\n"
+                    f"✅ Authentication successful\n"
+                    f"📊 Monitoring {channel_count} user channels\n"
+                    f"🔄 Real-time forwarding enabled\n\n"
+                    f"The bot can now monitor channels where it's not admin!"
+                )
+                
+            else:
+                logger.warning("⚠️ User monitor needs authentication")
+                await self._notify_admin_safe(
+                    f"🔐 **User Monitor Authentication Required**\n\n"
+                    f"📱 The user account needs to be authenticated\n"
+                    f"📨 Check your phone for SMS verification code\n\n"
+                    f"**Commands:**\n"
+                    f"• `/auth_status` - Check authentication status\n"
+                    f"• `/auth_restart` - Restart authentication process\n\n"
+                    f"Send the verification code directly to this chat when received."
+                )
+                
+        except Exception as e:
+            logger.error(f"❌ User monitor initialization flow error: {e}")
+            await self._notify_admin_safe(
+                f"❌ **User Monitor Error**\n\n{str(e)}\n\n"
+                f"Core bot functionality continues normally.\n"
+                f"Use `/auth_restart` to retry."
+            )
+    
+    def _setup_background_tasks(self):
+        """Set up background tasks with user monitor health checks"""
+        try:
+            if not self.app.job_queue:
+                logger.warning("⚠️ JobQueue not available - install python-telegram-bot[job-queue]")
+                return
+            
+            # User monitor health check every 5 minutes
+            self.app.job_queue.run_repeating(
+                self._check_user_monitor_health,
+                interval=300,  # 5 minutes
+                first=60       # Start after 1 minute
+            )
+            
+            # Config reload every hour
+            self.app.job_queue.run_repeating(
+                self._reload_config_task,
+                interval=3600,  # 1 hour
+                first=300       # Start after 5 minutes
+            )
+            
+            # Database cleanup daily
+            self.app.job_queue.run_repeating(
+                self._cleanup_database_task,
+                interval=86400,  # 24 hours
+                first=3600       # Start after 1 hour
+            )
+            
+            logger.info("✅ Background tasks scheduled")
+                
+        except Exception as e:
+            logger.warning(f"Could not set up background tasks: {e}")
+            logger.info("Core bot will continue without background tasks")
+    
+    async def _check_user_monitor_health(self, context):
+        """Health check for user monitor"""
+        if not self.user_monitor:
+            return
+        
+        try:
+            if not self.user_monitor.is_connected():
+                logger.warning("⚠️ User monitor disconnected, attempting reconnect...")
+                success = await self.user_monitor.reconnect()
                 if success:
-                    # Start user monitor in background
-                    asyncio.create_task(self.user_monitor.run_forever())
-                    logger.info("✅ User monitor extension started successfully")
+                    logger.info("✅ User monitor reconnected successfully")
+                    await self._notify_admin_safe(
+                        "✅ **User Monitor Reconnected**\n\n"
+                        "Connection restored automatically.\n"
+                        "Real-time monitoring resumed."
+                    )
                 else:
-                    logger.warning("❌ User monitor extension needs authentication")
+                    logger.error("❌ User monitor reconnection failed")
+                    await self._notify_admin_safe(
+                        "⚠️ **User Monitor Connection Issues**\n\n"
+                        "Automatic reconnection failed.\n"
+                        "Use `/auth_restart` if needed."
+                    )
+        except Exception as e:
+            logger.error(f"Error in user monitor health check: {e}")
+    
+    async def _reload_config_task(self, context):
+        """Config reload task with user monitor channel updates"""
+        try:
+            logger.info("🔄 Reloading configuration...")
+            
+            old_bot_channels = self.config_manager.get_channels_to_monitor()
+            old_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
+            
+            self.config_manager.load_channels_config()
+            
+            new_bot_channels = self.config_manager.get_channels_to_monitor()
+            new_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
+            
+            # Update user monitor channels if they changed
+            if self.user_monitor and old_user_channels != new_user_channels:
+                try:
+                    await self.user_monitor.update_monitored_entities()
+                    logger.info("✅ User monitor channels updated")
                     
-            except Exception as e:
-                logger.error(f"❌ User monitor extension error: {e}")
-                logger.info("Continuing with core bot functionality only")
-        
-        # Start config reload task
-        async def reload_task():
-            while True:
-                await asyncio.sleep(3600)  # 1 hour
-                logger.info("Reloading configuration...")
-                
-                old_bot_channels = self.config_manager.get_channels_to_monitor()
-                old_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
-                
-                self.config_manager.load_channels_config()
-                
-                new_bot_channels = self.config_manager.get_channels_to_monitor()
-                new_user_channels = self.config_manager.get_user_monitored_channels() if self.user_monitor else []
-                
-                # Update user monitor if channels changed
-                if self.user_monitor and old_user_channels != new_user_channels:
-                    try:
-                        await self.user_monitor.update_monitored_entities()
-                        logger.info("✅ User monitor channels updated")
-                    except Exception as e:
-                        logger.error(f"❌ Failed to update user monitor channels: {e}")
-        
-        asyncio.create_task(reload_task())
-        logger.info("Background tasks started")
-        
-        # Set up bot menu
-        await self.setup_bot_menu()
+                    if new_user_channels != old_user_channels:
+                        await self._notify_admin_safe(
+                            f"🔄 **User Monitor Channels Updated**\n\n"
+                            f"📊 Now monitoring {len(new_user_channels)} user channels\n"
+                            f"Configuration reloaded automatically."
+                        )
+                except Exception as e:
+                    logger.error(f"❌ Failed to update user monitor channels: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Config reload error: {e}")
+    
+    async def _cleanup_database_task(self, context):
+        """Database cleanup task"""
+        try:
+            logger.info("🧹 Running database cleanup...")
+            await self.data_manager.cleanup_old_data(days=30)
+            logger.info("✅ Database cleanup completed")
+        except Exception as e:
+            logger.error(f"Database cleanup error: {e}")
     
     async def _validate_bot_channels(self):
         """Validate bot channels on startup"""
-        channels = self.config_manager.get_channels_to_monitor()
-        if not channels:
-            logger.info("⚙️ STARTUP: No bot channels configured")
-            return
-        
-        valid_channels = []
-        invalid_channels = []
-        
-        for channel_identifier in channels:
-            try:
-                # Try to get chat info
-                chat = await self.app.bot.get_chat(channel_identifier)
-                
-                # Check if bot is admin
-                is_admin = False
-                try:
-                    bot_member = await self.app.bot.get_chat_member(chat.id, self.app.bot.id)
-                    is_admin = bot_member.status in ['administrator', 'creator']
-                except Exception:
-                    is_admin = False
-                
-                if is_admin:
-                    valid_channels.append(channel_identifier)
-                    logger.info(f"✅ STARTUP: Bot validated (admin): {channel_identifier}")
-                else:
-                    invalid_channels.append(f"{channel_identifier} (not admin)")
-                    logger.warning(f"⚠️ STARTUP: Bot not admin in: {channel_identifier}")
-                
-            except Exception as e:
-                invalid_channels.append(f"{channel_identifier} (access error)")
-                logger.error(f"❌ STARTUP: Bot cannot access channel {channel_identifier}: {e}")
-        
-        # Log summary
-        if invalid_channels:
-            logger.warning(f"⚠️ STARTUP: Bot channel validation: {len(valid_channels)} valid, {len(invalid_channels)} issues")
+        try:
+            channels = self.config_manager.get_channels_to_monitor()
+            if not channels:
+                logger.info("ℹ️ No bot channels configured")
+                return
             
-            # Notify admin if error monitoring is available
-            if hasattr(self, '_admin_id') and self._admin_id:
+            valid_channels = []
+            invalid_channels = []
+            
+            for channel_identifier in channels:
                 try:
-                    await self.app.bot.send_message(
-                        chat_id=self._admin_id,
-                        text=(
-                            f"⚠️ **Bot Channel Validation Issues**\n\n"
-                            f"✅ Valid bot channels: {len(valid_channels)}\n"
-                            f"❌ Invalid bot channels: {len(invalid_channels)}\n\n"
-                            f"**Issues found:**\n" + 
-                            "\n".join([f"• {ch}" for ch in invalid_channels]) +
-                            f"\n\nBot must be admin in channels to monitor them."
-                        ),
-                        parse_mode='Markdown'
+                    # Try to get chat info with timeout
+                    chat = await asyncio.wait_for(
+                        self.app.bot.get_chat(channel_identifier), 
+                        timeout=10
                     )
+                    
+                    # Check if bot is admin
+                    try:
+                        bot_member = await asyncio.wait_for(
+                            self.app.bot.get_chat_member(chat.id, self.app.bot.id),
+                            timeout=5
+                        )
+                        is_admin = bot_member.status in ['administrator', 'creator']
+                    except:
+                        is_admin = False
+                    
+                    if is_admin:
+                        valid_channels.append(channel_identifier)
+                        logger.info(f"✅ Bot validated (admin): {channel_identifier}")
+                    else:
+                        invalid_channels.append(f"{channel_identifier} (not admin)")
+                        logger.warning(f"⚠️ Bot not admin in: {channel_identifier}")
+                
+                except asyncio.TimeoutError:
+                    invalid_channels.append(f"{channel_identifier} (timeout)")
+                    logger.error(f"❌ Timeout accessing channel: {channel_identifier}")
                 except Exception as e:
-                    logger.error(f"Could not notify admin about channel issues: {e}")
-        else:
-            logger.info(f"✅ STARTUP: All {len(valid_channels)} bot channels validated successfully")
+                    invalid_channels.append(f"{channel_identifier} (error)")
+                    logger.error(f"❌ Error accessing channel {channel_identifier}: {e}")
+            
+            # Log summary and notify admin
+            if invalid_channels:
+                logger.warning(f"⚠️ Channel validation: {len(valid_channels)} valid, {len(invalid_channels)} issues")
+                await self._notify_admin_safe(
+                    f"⚠️ **Bot Channel Validation**\n\n"
+                    f"✅ Valid bot channels: {len(valid_channels)}\n"
+                    f"❌ Issues found: {len(invalid_channels)}\n\n"
+                    f"**Issues:**\n" + 
+                    "\n".join([f"• {ch}" for ch in invalid_channels[:5]]) +
+                    (f"\n... and {len(invalid_channels) - 5} more" if len(invalid_channels) > 5 else "") +
+                    f"\n\nBot must be admin in channels to monitor them.\n"
+                    f"Use User Monitor for channels where bot isn't admin."
+                )
+            else:
+                logger.info(f"✅ All {len(valid_channels)} bot channels validated")
+                
+        except Exception as e:
+            logger.error(f"Error in channel validation: {e}")
     
     async def _initialize_error_monitoring(self):
-        """Initialize error monitoring - INDEPENDENT of user monitor"""
-        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
-        
-        if not admin_id_str or not admin_id_str.isdigit():
-            logger.info("No admin ID configured - error monitoring disabled")
+        """Initialize error monitoring"""
+        if not self._admin_id:
+            logger.info("ℹ️ No admin ID configured - error monitoring disabled")
             return
-        
-        admin_id = int(admin_id_str)
         
         try:
             from utils.error_monitor import setup_error_monitoring
-            setup_error_monitoring(self.app.bot, admin_id)
-            logger.info(f"✅ Error monitoring initialized for admin ID: {admin_id}")
+            setup_error_monitoring(self.app.bot, self._admin_id)
+            logger.info(f"✅ Error monitoring initialized for admin ID: {self._admin_id}")
             
-            # Send enhanced startup notification with backup info
-            await self.notify_admin_about_startup()
+            # Send startup notification
+            await self._notify_admin_about_startup()
                 
-        except ImportError as e:
-            logger.warning(f"Error monitoring not available: {e}")
+        except ImportError:
+            logger.warning("Error monitoring module not available")
         except Exception as e:
             logger.error(f"Failed to initialize error monitoring: {e}")
     
-    async def notify_admin_about_startup(self):
-        """Notify admin about startup with backup info"""
+    async def _notify_admin_about_startup(self):
+        """Notify admin about startup with system info"""
         if not self._admin_id:
             return
         
         try:
-            # Get backup info
-            backups = self.config_manager.list_backups()
-            backup_count = len(backups)
-            latest_backup = backups[0]['created'] if backups else "None"
-            
             startup_message = (
                 f"🤖 **Bot Started Successfully**\n\n"
-                f"✅ Error monitoring active\n"
-                f"📊 Admin commands available\n"
-                f"💾 Config backups: {backup_count} files\n"
-                f"📅 Latest backup: {latest_backup}\n\n"
-                f"Use `/admin backups` to manage config backups"
+                f"✅ Core bot functionality active\n"
+                f"✅ Database initialized\n"
+                f"✅ Message handlers registered\n"
             )
             
-            await self.app.bot.send_message(
-                chat_id=self._admin_id,
-                text=startup_message,
-                parse_mode='Markdown'
+            if self.app.job_queue:
+                startup_message += f"✅ Background tasks scheduled\n"
+            else:
+                startup_message += f"⚠️ Background tasks disabled (missing job-queue)\n"
+            
+            startup_message += f"✅ Error monitoring active\n"
+            
+            if self._user_monitor_enabled:
+                startup_message += f"🔄 User monitor: Initializing...\n"
+            else:
+                startup_message += f"ℹ️ User monitor: Disabled\n"
+            
+            startup_message += f"\n**Monitoring Capabilities:**\n"
+            startup_message += f"• Bot channels: Where bot is admin\n"
+            
+            if self._user_monitor_enabled:
+                startup_message += f"• User channels: Any public channel (via user account)\n"
+            else:
+                startup_message += f"• User channels: Not available (no credentials)\n"
+            
+            startup_message += f"\nUse `/admin` to see available commands"
+            
+            await asyncio.wait_for(
+                self.app.bot.send_message(
+                    chat_id=self._admin_id,
+                    text=startup_message,
+                    parse_mode='Markdown'
+                ),
+                timeout=10
             )
         except Exception as e:
-            logger.warning(f"Could not send startup notification with backup info: {e}")
+            logger.warning(f"Could not send startup notification: {e}")
     
-    async def setup_bot_menu(self):
-        """Set up the bot menu commands - AUTH COMMANDS HIDDEN FROM PUBLIC"""
-        from telegram import BotCommand
-        
-        # PUBLIC commands only - auth commands are hidden
-        commands = [
-            BotCommand("start", "🚀 Show main menu"),
-            BotCommand("keywords", "🎯 Set search keywords"),
-            BotCommand("ignore_keywords", "🚫 Set ignore keywords"),
-            BotCommand("my_settings", "⚙️ Show current settings"),
-            BotCommand("purge_ignore", "🗑️ Clear all ignore keywords"),
-            BotCommand("help", "❓ Show help"),
-        ]
-        
-        # NOTE: auth_status, auth_restart, and admin commands are NOT in public menu
-        # They work for authorized admin but are hidden from other users
+    async def _notify_admin_safe(self, message: str):
+        """Send notification to admin with timeout"""
+        if not self._admin_id:
+            return
         
         try:
-            await self.app.bot.set_my_commands(commands)
-            logger.info("Bot menu commands set successfully")
+            await asyncio.wait_for(
+                self.app.bot.send_message(
+                    chat_id=self._admin_id,
+                    text=message,
+                    parse_mode='Markdown'
+                ),
+                timeout=10
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify admin: {e}")
+    
+    async def setup_bot_menu(self):
+        """Set up bot menu commands"""
+        try:
+            from telegram import BotCommand
+            from utils.translations import get_text
+            
+            # Always English for bot menu commands
+            menu_language = "en"
+            
+            commands = [
+                BotCommand("start", get_text("menu_command_start", menu_language)),
+                BotCommand("manage_keywords", get_text("menu_command_manage", menu_language)),
+                BotCommand("my_settings", get_text("menu_command_settings", menu_language)),
+                BotCommand("help", get_text("menu_command_help", menu_language)),
+            ]
+            
+            await asyncio.wait_for(
+                self.app.bot.set_my_commands(commands),
+                timeout=10
+            )
+            logger.info("✅ Bot menu commands set")
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
     
+    async def _import_on_startup(self):
+        """Import from config files if database is empty"""
+        try:
+            # Check if database has data
+            all_users = await self.data_manager.get_all_users_with_keywords()
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            
+            imported_something = False
+            
+            # Import channels if database is empty
+            if not bot_channels and not user_channels:
+                self.config_manager.load_channels_config()
+                config_bot_channels = self.config_manager.get_channels_to_monitor()
+                config_user_channels = self.config_manager.get_user_monitored_channels()
+                
+                if config_bot_channels or config_user_channels:
+                    # Convert to proper format for import
+                    bot_channel_dicts = [{'chat_id': ch, 'username': None} for ch in config_bot_channels]
+                    user_channel_dicts = [{'chat_id': ch, 'username': None} for ch in config_user_channels]
+                    
+                    await self.data_manager.import_channels_from_config(bot_channel_dicts, user_channel_dicts)
+                    logger.info(f"✅ Imported channels: {len(config_bot_channels)} bot, {len(config_user_channels)} user")
+                    imported_something = True
+            
+            # Import users if database is empty
+            if not all_users:
+                users_data = self.config_manager.load_users_config()
+                if users_data:
+                    await self.data_manager.import_users_from_config(users_data)
+                    logger.info(f"✅ Imported {len(users_data)} users")
+                    imported_something = True
+            
+            if not imported_something:
+                logger.info("ℹ️ Database has data, skipping config import")
+                
+        except Exception as e:
+            logger.error(f"⚠️ Config import error: {e}")
+    
+    # Legacy methods for backward compatibility
     async def collect_and_repost_jobs(self):
         """Manual job collection function for scheduled runs"""
         await self.message_handlers.collect_and_repost_jobs(self.app.bot)
@@ -307,97 +521,150 @@ class JobCollectorBot:
         finally:
             await self.app.shutdown()
     
-    async def _import_on_startup(self):
-        """Import from config files if database is empty"""
+    async def run_polling_manually(self):
+        """Run polling manually with proper event loop"""
         try:
-            # Check if database has any channels
-            all_users = await self.data_manager.get_all_users_with_keywords()
-            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            # Initialize the application
+            await self.app.initialize()
             
-            imported_something = False
+            # Start background tasks (includes user monitor initialization)
+            await self.start_background_tasks()
             
-            # Import channels if database is empty
-            if not bot_channels and not user_channels:
-                self.config_manager.load_channels_config()
-                config_bot_channels = self.config_manager.get_channels_to_monitor()
-                config_user_channels = self.config_manager.get_user_monitored_channels()
-                
-                if config_bot_channels or config_user_channels:
-                    await self.data_manager.import_channels_from_config(config_bot_channels, config_user_channels)
-                    logger.info(f"⚙️ STARTUP: Imported channels from config: {len(config_bot_channels)} bot, {len(config_user_channels)} user")
-                    imported_something = True
+            # Start the updater
+            await self.app.updater.start_polling(drop_pending_updates=True)
             
-            # Import users if database is empty
-            if not all_users:
-                users_data = self.config_manager.load_users_config()
-                if users_data:
-                    await self.data_manager.import_users_from_config(users_data)
-                    logger.info(f"⚙️ STARTUP: Imported {len(users_data)} users from config")
-                    imported_something = True
+            # Start the application
+            await self.app.start()
             
-            if not imported_something:
-                logger.info("⚙️ STARTUP: Database has data, skipping config import")
-                # Export current state to config files to ensure sync
-                await self._export_current_state()
+            logger.info("✅ Bot is now running and listening for updates...")
+            
+            # Keep running until stopped
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt")
                 
         except Exception as e:
-            logger.error(f"⚙️ STARTUP: Failed to import from config: {e}")
+            logger.error(f"Error in manual polling: {e}")
+            raise
+        finally:
+            # Clean shutdown
+            try:
+                await self.app.stop()
+                await self.app.updater.stop()
+                await self.app.shutdown()
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+    
+    async def shutdown(self):
+        """Graceful shutdown with user monitor cleanup"""
+        logger.info("🛑 Starting graceful shutdown...")
+        
+        try:
+            # Cancel user monitor task
+            if self._user_monitor_task and not self._user_monitor_task.done():
+                self._user_monitor_task.cancel()
+                try:
+                    await asyncio.wait_for(self._user_monitor_task, timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Stop user monitor
+            if self.user_monitor:
+                await self.user_monitor.stop()
+            
+            # Close database connections
+            await self.data_manager.close()
+            
+            logger.info("✅ Graceful shutdown completed")
+            
+        except Exception as e:
+            logger.error(f"Error during shutdown: {e}")
 
-    async def _export_current_state(self):
-        """Export current database state to config files"""
-        try:
-            # Export channels
-            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
-            self.config_manager.export_channels_config(bot_channels, user_channels)
+async def clear_webhook(token):
+    """Clear webhook and pending updates"""
+    try:
+        from telegram import Bot
+        bot = Bot(token)
+        
+        # First check current state
+        info = await bot.get_webhook_info()
+        if info.pending_update_count > 0 or info.url:
+            logger.info(f"🧹 Clearing webhook (URL: {info.url or 'None'}, Pending: {info.pending_update_count})")
+            await bot.delete_webhook(drop_pending_updates=True)
             
-            # Export users
-            users_data = await self.data_manager.export_all_users_for_config()
-            self.config_manager.export_users_config(users_data)
+            # Verify it's cleared
+            new_info = await bot.get_webhook_info()
+            if new_info.pending_update_count > 0:
+                logger.warning(f"⚠️ Still have {new_info.pending_update_count} pending updates after clearing")
+            else:
+                logger.info("✅ Webhook cleared successfully")
+        else:
+            logger.info("✅ No webhook or pending updates to clear")
             
-            logger.info("⚙️ STARTUP: Exported current state to config files")
-            
-        except Exception as e:
-            logger.error(f"⚙️ STARTUP: Failed to export current state: {e}")
+    except Exception as e:
+        logger.error(f"❌ Failed to clear webhook: {e}")
 
 def main():
-    """Main function"""
+    """Main function with robust user monitor support"""
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
-        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
-        return
+        logger.error("❌ TELEGRAM_BOT_TOKEN environment variable not set!")
+        sys.exit(1)
     
-    bot = JobCollectorBot(token)
+    logger.info("🚀 Starting Job Collector Bot with User Monitor...")
     
-    # Check if we should run the scheduled job
-    run_mode = os.getenv('RUN_MODE', 'webhook')
+    # Check run mode
+    run_mode = os.getenv('RUN_MODE', 'polling')
     
     if run_mode == 'scheduled':
         # Run job collection once and exit
+        logger.info("Starting in scheduled mode...")
+        bot = JobCollectorBot(token)
         asyncio.run(bot.run_scheduled_job())
     else:
-        # Run as webhook bot
-        logger.info("Starting Job Collector Bot...")
-        logger.info("✅ Core functionality: Bot monitoring enabled")
+        # Default: Manual polling mode with user monitor
+        logger.info("✅ Core functionality: Bot + User monitoring enabled")
         
-        # Log admin status
-        admin_id_str = os.getenv('AUTHORIZED_ADMIN_ID')
-        if admin_id_str and admin_id_str.isdigit():
-            logger.info("✅ Admin functionality: Enabled")
-        else:
-            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+        # Create new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
-        # Log user monitor status  
-        if bot.user_monitor:
-            logger.info("✅ Extended functionality: User account monitoring enabled")
-        else:
-            logger.info("ℹ️  Extended functionality: User account monitoring disabled")
-        
-        # Set up post_init callback to start background tasks
-        async def post_init(application):
-            await bot.start_background_tasks()
-        
-        bot.app.post_init = post_init
-        bot.app.run_polling()
+        try:
+            # Clear webhook first
+            loop.run_until_complete(clear_webhook(token))
+            
+            # Create bot
+            bot = JobCollectorBot(token)
+            
+            # Log configuration status
+            if bot._admin_id:
+                logger.info("✅ Admin functionality: Enabled")
+            else:
+                logger.info("ℹ️ Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+            
+            if bot._user_monitor_enabled:
+                logger.info("✅ User monitor: Will be enabled")
+            else:
+                logger.info("ℹ️ User monitor: Disabled (missing credentials)")
+            
+            # Run the bot manually
+            loop.run_until_complete(bot.run_polling_manually())
+            
+        except KeyboardInterrupt:
+            logger.info("Received keyboard interrupt")
+        except Exception as e:
+            logger.error(f"❌ Bot crashed: {e}")
+        finally:
+            # Cleanup
+            try:
+                if 'bot' in locals():
+                    loop.run_until_complete(bot.shutdown())
+            except Exception as e:
+                logger.error(f"Shutdown error: {e}")
+            finally:
+                loop.close()
 
 if __name__ == '__main__':
     main()

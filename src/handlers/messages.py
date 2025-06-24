@@ -1,5 +1,6 @@
 """
-Message Handlers - Production version with clean logging
+Message Handlers - Enhanced with better channel display names
+Uses chat_id for processing and username for display
 """
 
 import asyncio
@@ -20,10 +21,10 @@ class MessageHandlers:
         self.data_manager = data_manager
         self.config_manager = config_manager
         self.keyword_matcher = KeywordMatcher()
-        logger.info("MessageHandlers initialized")
+        logger.info("MessageHandlers initialized with enhanced channel support")
     
     def register(self, app):
-        """Register message handlers - Production version"""
+        """Register message handlers"""
         # ONLY handle channel/group messages (never private)
         app.add_handler(MessageHandler(
             filters.TEXT & 
@@ -32,10 +33,10 @@ class MessageHandlers:
             self.handle_channel_message
         ))
         
-        logger.info("Message handlers registered (channels/groups only)")
+        logger.info("Enhanced message handlers registered (channels/groups only)")
     
     async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle incoming messages from monitored channels"""
+        """Handle incoming messages from monitored channels - ENHANCED with display names"""
         message = update.message
         if not message or not message.text:
             return
@@ -46,14 +47,15 @@ class MessageHandlers:
             return
         
         chat_id = message.chat.id
-        channel_username = message.chat.username
         
-        # Check if this channel is monitored by bot
-        if not self.config_manager.is_monitored_channel(chat_id, channel_username):
+        # Check if this channel is monitored by bot (using chat_id now)
+        bot_channels = await self.data_manager.get_simple_bot_channels()
+        if chat_id not in bot_channels:
             return
         
-        channel_display = f"@{channel_username}" if channel_username else str(chat_id)
-        logger.info(f"📨 EVENT: Processing message from channel: {channel_display}")
+        # Get display name for the channel (username or fallback)
+        display_name = await self.data_manager.get_channel_display_name(chat_id)
+        logger.info(f"📨 EVENT: Processing message from: {display_name}")
         
         # Get all users with keywords
         all_users = await self.data_manager.get_all_users_with_keywords()
@@ -78,11 +80,16 @@ class MessageHandlers:
             
             # Forward the message
             try:
+                # Option 1: Forward original message (preserves all formatting, recommended)
                 await context.bot.forward_message(
                     chat_id=user_chat_id,
                     from_chat_id=chat_id,
                     message_id=message.message_id
                 )
+                
+                # Option 2: Send with custom header (uncomment if you prefer this)
+                # formatted_message = f"📋 Job from {display_name}:\n\n{message.text}"
+                # await context.bot.send_message(chat_id=user_chat_id, text=formatted_message)
                 
                 forwarded_count += 1
                 await asyncio.sleep(0.5)  # Rate limiting
@@ -91,15 +98,16 @@ class MessageHandlers:
                 logger.error(f"Failed to forward to user {user_chat_id}: {e}")
         
         if forwarded_count > 0:
-            logger.info(f"📤 FORWARD: Bot forwarded message to {forwarded_count} users")
+            logger.info(f"📤 FORWARD: Bot forwarded message from {display_name} to {forwarded_count} users")
     
     async def collect_and_repost_jobs(self, bot):
-        """Manual job collection function for scheduled runs"""
-        logger.info("⚙️ SYSTEM: Starting manual job collection...")
+        """Manual job collection function for scheduled runs - ENHANCED"""
+        logger.info("⚙️ SYSTEM: Starting enhanced manual job collection...")
         
-        channels = self.config_manager.get_channels_to_monitor()
-        if not channels:
-            logger.info("⚙️ SYSTEM: No channels configured for monitoring")
+        # Get channels using enhanced method
+        bot_channels = await self.data_manager.get_simple_bot_channels()
+        if not bot_channels:
+            logger.info("⚙️ SYSTEM: No bot channels configured for monitoring")
             return
         
         all_users = await self.data_manager.get_all_users_with_keywords()
@@ -110,16 +118,20 @@ class MessageHandlers:
         since_time = datetime.now() - timedelta(hours=12)
         total_forwarded = 0
         
-        for channel in channels:
+        # Get channel display names for better logging
+        channel_info = await self.data_manager.get_all_channels_with_usernames()
+        
+        for chat_id in bot_channels:
             try:
-                logger.info(f"⚙️ SYSTEM: Checking channel: {channel}")
+                display_name = channel_info.get(chat_id, {}).get('display_name', f"Channel {chat_id}")
+                logger.info(f"⚙️ SYSTEM: Checking channel: {display_name}")
                 
                 messages = []
-                async for message in bot.get_chat_history(chat_id=channel, limit=50):
+                async for message in bot.get_chat_history(chat_id=chat_id, limit=50):
                     if message.date > since_time and message.text:
                         messages.append(message)
                 
-                logger.info(f"⚙️ SYSTEM: Found {len(messages)} recent messages in {channel}")
+                logger.info(f"⚙️ SYSTEM: Found {len(messages)} recent messages in {display_name}")
                 
                 for message in messages:
                     for user_chat_id, keywords in all_users.items():
@@ -139,7 +151,7 @@ class MessageHandlers:
                         try:
                             await bot.forward_message(
                                 chat_id=user_chat_id,
-                                from_chat_id=channel,
+                                from_chat_id=chat_id,
                                 message_id=message.message_id
                             )
                             
@@ -150,6 +162,7 @@ class MessageHandlers:
                             logger.error(f"Failed to forward to user {user_chat_id}: {e}")
             
             except Exception as e:
-                logger.error(f"⚙️ SYSTEM: Error processing channel {channel}: {e}")
+                display_name = channel_info.get(chat_id, {}).get('display_name', f"Channel {chat_id}")
+                logger.error(f"⚙️ SYSTEM: Error processing channel {display_name}: {e}")
         
-        logger.info(f"⚙️ SYSTEM: Manual job collection completed - {total_forwarded} messages forwarded")
+        logger.info(f"⚙️ SYSTEM: Enhanced manual job collection completed - {total_forwarded} messages forwarded")

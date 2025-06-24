@@ -10,7 +10,11 @@ RUN apk add --no-cache \
     libffi-dev \
     cargo \
     rust \
-    openssl-dev
+    openssl-dev \
+    htop \
+    ncdu \
+    curl \
+    nano
 
 # Upgrade pip to ensure we can use prebuilt wheels
 RUN pip install --upgrade pip
