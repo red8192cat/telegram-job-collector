@@ -130,4 +130,84 @@ class CallbackHandlers:
         
         # Create keyboard based on current state
         keyboard = create_manage_keywords_keyboard(
+            has_keywords=bool(keywords),
+            has_ignore=bool(ignore_keywords),
+            language=language
+        )
+        
+        await query.edit_message_text(full_msg, reply_markup=keyboard)
+    
+    async def _handle_show_settings(self, query, context, language):
+        """Handle show settings action"""
+        user_id = query.from_user.id
+        
+        # Get both keywords and ignore keywords
+        keywords = await self.data_manager.get_user_keywords(user_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_id)
+        
+        # Use helper to format message
+        msg = format_settings_message(keywords, ignore_keywords, language)
+        keyboard = create_settings_keyboard(bool(keywords), language)
+        
+        await query.edit_message_text(msg, reply_markup=keyboard)
+    
+    async def _handle_set_keywords_help(self, query, context, language):
+        """Handle set keywords help"""
+        help_text = get_text("keywords_help_text", language)
+        await query.edit_message_text(help_text, reply_markup=create_keywords_help_keyboard(language))
+    
+    async def _handle_set_ignore_help(self, query, context, language):
+        """Handle set ignore keywords help"""
+        help_text = get_text("ignore_help_text", language)
+        await query.edit_message_text(help_text, reply_markup=create_ignore_keywords_help_keyboard(language))
+    
+    async def _handle_clear_ignore_keywords(self, query, context, language):
+        """Handle clear ignore keywords action"""
+        user_id = query.from_user.id
+        logger.debug(f"Clear ignore keywords requested by user {user_id}")
+        
+        try:
+            result = await self.data_manager.purge_user_ignore_keywords(user_id)
+            logger.debug(f"Purge ignore keywords result: {result}")
             
+            if result:
+                success_message = get_text("ignore_cleared_success", language)
+                await query.edit_message_text(success_message, reply_markup=create_back_menu(language))
+            else:
+                no_keywords_message = get_text("ignore_cleared_none", language)
+                await query.edit_message_text(no_keywords_message, reply_markup=create_back_menu(language))
+                
+        except Exception as e:
+            logger.error(f"Error clearing ignore keywords: {e}")
+            error_msg = get_text("error_occurred", language)
+            await query.edit_message_text(error_msg, reply_markup=create_back_menu(language))
+    
+    async def _handle_stop_monitoring_confirm(self, query, context, language):
+        """Handle stop monitoring confirmation dialog"""
+        confirm_text = get_text("stop_monitoring_confirm", language)
+        keyboard = create_stop_monitoring_keyboard(language)
+        
+        await query.edit_message_text(confirm_text, reply_markup=keyboard)
+    
+    async def _handle_confirm_stop_monitoring(self, query, context, language):
+        """Handle confirmed stop monitoring action"""
+        user_id = query.from_user.id
+        logger.info(f"Stop monitoring confirmed by user {user_id}")
+        
+        try:
+            # Clear all keywords and ignore keywords
+            await self.data_manager.set_user_keywords(user_id, [])
+            await self.data_manager.set_user_ignore_keywords(user_id, [])
+            
+            # Show success message
+            success_message = get_text("monitoring_stopped", language)
+            keyboard = create_resume_monitoring_keyboard(language)
+            
+            await query.edit_message_text(success_message, reply_markup=keyboard)
+            
+            logger.info(f"User {user_id} stopped monitoring - all keywords cleared")
+            
+        except Exception as e:
+            logger.error(f"Error stopping monitoring for user {user_id}: {e}")
+            error_msg = get_text("error_occurred", language)
+            await query.edit_message_text(error_msg, reply_markup=create_back_menu(language))
