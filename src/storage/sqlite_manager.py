@@ -1,6 +1,7 @@
 """
-High-Performance SQLite Manager - FIXED VERSION
+High-Performance SQLite Manager - CLEANED VERSION
 Enhanced with Simple Channel Management and proper connection handling
+Migration complexity removed - uses current enhanced format only
 """
 
 import aiosqlite
@@ -21,7 +22,7 @@ class SQLiteManager:
         self._lock = asyncio.Lock()  # Added lock for thread safety
         
     async def initialize(self):
-        """Initialize database with optimizations for high performance - FIXED"""
+        """Initialize database with optimizations for high performance"""
         async with self._lock:
             if self._initialized:
                 return
@@ -55,7 +56,7 @@ class SQLiteManager:
                 raise
     
     async def _configure_connection(self, conn):
-        """Configure connection for maximum performance - IMPROVED"""
+        """Configure connection for maximum performance"""
         try:
             # Performance optimizations
             await conn.execute("PRAGMA journal_mode=WAL")
@@ -73,11 +74,23 @@ class SQLiteManager:
             raise
         
     async def _create_schema(self, conn):
-        """Create optimized database schema with enhanced channel support - FIXED"""
+        """Create optimized database schema with enhanced channel support"""
         
         try:
-            # Migrate channels table to enhanced format
-            await self._migrate_channels_table_simple(conn)
+            # Create monitored_channels table (current enhanced format)
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS monitored_channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL,
+                    username TEXT,
+                    type TEXT NOT NULL,
+                    status TEXT DEFAULT 'active',
+                    added_at TEXT DEFAULT (datetime('now')),
+                    last_updated TEXT DEFAULT (datetime('now')),
+                    UNIQUE(chat_id, type)
+                )
+            """)
+            await self._create_channel_indexes(conn)
             
             # Users table with language support
             await conn.execute("""
@@ -160,103 +173,6 @@ class SQLiteManager:
             logger.error(f"❌ Schema creation failed: {e}")
             await conn.rollback()
             raise
-    
-    async def _migrate_channels_table_simple(self, conn):
-        """Migrate to simple enhanced format: chat_id + username - FIXED"""
-        try:
-            # Check if old table exists
-            async with conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='monitored_channels'"
-            ) as cursor:
-                old_exists = await cursor.fetchone()
-            
-            if not old_exists:
-                # No old table, create new enhanced one
-                await conn.execute("""
-                    CREATE TABLE monitored_channels (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        chat_id INTEGER NOT NULL,
-                        username TEXT,
-                        type TEXT NOT NULL,
-                        status TEXT DEFAULT 'active',
-                        added_at TEXT DEFAULT (datetime('now')),
-                        last_updated TEXT DEFAULT (datetime('now')),
-                        UNIQUE(chat_id, type)
-                    )
-                """)
-                await self._create_channel_indexes(conn)
-                logger.info("✅ Created new monitored_channels table")
-                return
-            
-            # Check if already migrated (has chat_id column)
-            try:
-                await conn.execute("SELECT chat_id FROM monitored_channels LIMIT 1")
-                logger.debug("Channels table already migrated")
-                return  # Already migrated
-            except:
-                pass  # Needs migration
-            
-            # Migrate from old format
-            logger.info("🔄 Migrating channels table to new format...")
-            await conn.execute("""
-                CREATE TABLE monitored_channels_new (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL,
-                    username TEXT,
-                    type TEXT NOT NULL,
-                    status TEXT DEFAULT 'active',
-                    added_at TEXT DEFAULT (datetime('now')),
-                    last_updated TEXT DEFAULT (datetime('now')),
-                    UNIQUE(chat_id, type)
-                )
-            """)
-            
-            # Migrate data if old table has data
-            try:
-                async with conn.execute("SELECT identifier, type, status, added_at FROM monitored_channels") as cursor:
-                    old_channels = await cursor.fetchall()
-                
-                for identifier, channel_type, status, added_at in old_channels:
-                    chat_id, username = self._parse_old_identifier(identifier)
-                    
-                    await conn.execute("""
-                        INSERT OR IGNORE INTO monitored_channels_new 
-                        (chat_id, username, type, status, added_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (chat_id, username, channel_type, status, added_at))
-                
-                logger.info(f"✅ Migrated {len(old_channels)} channels to new format")
-            except Exception as e:
-                logger.warning(f"Migration warning: {e}")
-            
-            # Replace tables
-            await conn.execute("DROP TABLE monitored_channels")
-            await conn.execute("ALTER TABLE monitored_channels_new RENAME TO monitored_channels")
-            await self._create_channel_indexes(conn)
-            
-            await conn.commit()
-            logger.info("✅ Channels table migration completed")
-            
-        except Exception as e:
-            logger.error(f"❌ Channel migration error: {e}")
-            # Don't raise - let it create new table instead
-
-    def _parse_old_identifier(self, identifier: str) -> tuple:
-        """Parse old identifier format to (chat_id, username) - IMPROVED"""
-        if not identifier:
-            return 0, None
-        
-        if identifier.startswith('@'):
-            # Old @username format - generate consistent hash-based ID
-            chat_id = -abs(hash(identifier) % 1000000000)  # Ensure negative for channels
-            return chat_id, identifier
-        elif identifier.lstrip('-').isdigit():
-            # Old chat_id format
-            return int(identifier), None
-        else:
-            # Unknown old format - generate negative ID
-            chat_id = -abs(hash(identifier) % 1000000000)
-            return chat_id, identifier if identifier.startswith('@') else None
 
     async def _create_channel_indexes(self, conn):
         """Create indexes for channels table"""
@@ -273,13 +189,13 @@ class SQLiteManager:
                 logger.debug(f"Index creation warning: {e}")
     
     def _get_connection(self):
-        """Get database connection from pool - FIXED with proper error handling"""
+        """Get database connection from pool"""
         if not self._initialized:
             raise RuntimeError("Database not initialized. Call initialize() first.")
         return ConnectionContext(self._available_connections)
     
     async def close(self):
-        """Close all connections - IMPROVED"""
+        """Close all connections"""
         async with self._lock:
             try:
                 connections_closed = 0
@@ -299,10 +215,10 @@ class SQLiteManager:
             except Exception as e:
                 logger.error(f"Error during database close: {e}")
     
-    # Enhanced Channel Management Methods - FIXED
+    # Enhanced Channel Management Methods
     
     async def add_channel_simple(self, chat_id: int, username: str = None, channel_type: str = 'bot') -> bool:
-        """Add channel with chat_id and optional username - IMPROVED error handling"""
+        """Add channel with chat_id and optional username"""
         try:
             async with self._get_connection() as conn:
                 await conn.execute("""
@@ -338,7 +254,7 @@ class SQLiteManager:
             return False
 
     async def get_channel_display_name(self, chat_id: int) -> str:
-        """Get display name for channel (username or chat_id) - IMPROVED"""
+        """Get display name for channel (username or chat_id)"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute(
@@ -370,7 +286,7 @@ class SQLiteManager:
             return False
 
     async def get_simple_bot_channels(self) -> List[int]:
-        """Get bot channel chat_ids - IMPROVED error handling"""
+        """Get bot channel chat_ids"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute(
@@ -383,7 +299,7 @@ class SQLiteManager:
             return []
 
     async def get_simple_user_channels(self) -> List[int]:
-        """Get user channel chat_ids - IMPROVED error handling"""
+        """Get user channel chat_ids"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute(
@@ -396,7 +312,7 @@ class SQLiteManager:
             return []
 
     async def get_all_channels_with_usernames(self) -> dict:
-        """Get all channels with their usernames for display - IMPROVED"""
+        """Get all channels with their usernames for display"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute("""
@@ -444,44 +360,12 @@ class SQLiteManager:
             logger.error(f"Error finding channel: {e}")
             return None
 
-    # Legacy compatibility methods for existing code - IMPROVED
+    # Compatibility methods for existing code
     async def init_channels_table(self):
         """Legacy compatibility - already handled in _create_schema"""
         pass
     
-    async def add_channel_db(self, identifier: str, channel_type: str):
-        """Legacy compatibility - parse identifier and add"""
-        chat_id, username = self._parse_identifier_for_legacy(identifier)
-        return await self.add_channel_simple(chat_id, username, channel_type)
-
-    async def remove_channel_db(self, identifier: str, channel_type: str):
-        """Legacy compatibility - parse identifier and remove"""
-        chat_id, username = self._parse_identifier_for_legacy(identifier)
-        return await self.remove_channel_simple(chat_id, channel_type)
-
-    async def get_bot_monitored_channels_db(self):
-        """Legacy compatibility"""
-        return await self.get_simple_bot_channels()
-
-    async def get_user_monitored_channels_db(self):
-        """Legacy compatibility"""
-        return await self.get_simple_user_channels()
-
-    def _parse_identifier_for_legacy(self, identifier: str) -> tuple:
-        """Parse identifier for legacy compatibility - IMPROVED"""
-        if not identifier:
-            return 0, None
-        
-        if identifier.startswith('@'):
-            chat_id = -abs(hash(identifier) % 1000000000)  # Ensure negative for channels
-            return chat_id, identifier
-        elif identifier.lstrip('-').isdigit():
-            return int(identifier), None
-        else:
-            chat_id = -abs(hash(identifier) % 1000000000)
-            return chat_id, identifier if identifier.startswith('@') else None
-    
-    # Language Support Methods - IMPROVED
+    # Language Support Methods
     async def get_user_language(self, user_id: int) -> str:
         """Get user's preferred language"""
         try:
@@ -540,7 +424,7 @@ class SQLiteManager:
             logger.error(f"Error getting language statistics: {e}")
             return {}
     
-    # User management methods - IMPROVED
+    # User management methods
     async def ensure_user_exists(self, user_id: int, language: str = 'en'):
         """Ensure user exists in database with language preference"""
         try:
@@ -572,7 +456,7 @@ class SQLiteManager:
             return []
     
     async def set_user_keywords(self, user_id: int, keywords: List[str]):
-        """Set keywords for a specific user (replaces all existing) - IMPROVED"""
+        """Set keywords for a specific user (replaces all existing)"""
         try:
             await self.ensure_user_exists(user_id)
             
@@ -641,7 +525,7 @@ class SQLiteManager:
             return []
     
     async def set_user_ignore_keywords(self, user_id: int, keywords: List[str]):
-        """Set ignore keywords for a specific user - IMPROVED"""
+        """Set ignore keywords for a specific user"""
         try:
             await self.ensure_user_exists(user_id)
             
@@ -713,7 +597,7 @@ class SQLiteManager:
             return False
     
     async def get_all_users_with_keywords(self) -> Dict[int, List[str]]:
-        """Get all users who have keywords set - IMPROVED"""
+        """Get all users who have keywords set"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute("""
@@ -735,7 +619,7 @@ class SQLiteManager:
             return {}
     
     async def log_message_forward(self, user_id: int, channel_id: int, message_id: int):
-        """Log a forwarded message - IMPROVED"""
+        """Log a forwarded message"""
         try:
             async with self._get_connection() as conn:
                 await conn.execute("BEGIN TRANSACTION")
@@ -763,7 +647,7 @@ class SQLiteManager:
         return True
     
     async def cleanup_old_data(self, days: int = 30):
-        """Clean up old message forward logs - IMPROVED"""
+        """Clean up old message forward logs"""
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.execute(
@@ -778,7 +662,7 @@ class SQLiteManager:
             logger.error(f"Error cleaning up old data: {e}")
             return 0
 
-    # Export/Import Methods for Configuration Management - IMPROVED
+    # Export/Import Methods for Configuration Management
     async def export_all_channels_for_config(self):
         """Export all channels for config file - simple format"""
         try:
@@ -850,7 +734,7 @@ class SQLiteManager:
             return []
     
     async def import_channels_from_config(self, bot_channels, user_channels):
-        """Import channels from config (replace existing) - IMPROVED"""
+        """Import channels from config (replace existing)"""
         try:
             async with self._get_connection() as conn:
                 await conn.execute("BEGIN TRANSACTION")
@@ -860,12 +744,8 @@ class SQLiteManager:
                     
                     # Import bot channels
                     for channel in bot_channels:
-                        if isinstance(channel, dict):
-                            chat_id = channel.get('chat_id')
-                            username = channel.get('username')
-                        else:
-                            # Legacy string format
-                            chat_id, username = self._parse_identifier_for_legacy(str(channel))
+                        chat_id = channel.get('chat_id')
+                        username = channel.get('username')
                         
                         if chat_id:
                             await conn.execute(
@@ -875,12 +755,8 @@ class SQLiteManager:
                     
                     # Import user channels  
                     for channel in user_channels:
-                        if isinstance(channel, dict):
-                            chat_id = channel.get('chat_id')
-                            username = channel.get('username')
-                        else:
-                            # Legacy string format
-                            chat_id, username = self._parse_identifier_for_legacy(str(channel))
+                        chat_id = channel.get('chat_id')
+                        username = channel.get('username')
                         
                         if chat_id:
                             await conn.execute(
@@ -899,7 +775,7 @@ class SQLiteManager:
             raise
     
     async def import_users_from_config(self, users_data):
-        """Import users from config (replace existing) - IMPROVED"""
+        """Import users from config (replace existing)"""
         try:
             async with self._get_connection() as conn:
                 await conn.execute("BEGIN TRANSACTION")
@@ -955,7 +831,7 @@ class SQLiteManager:
 
 
 class ConnectionContext:
-    """Context manager for database connections - IMPROVED with better error handling"""
+    """Context manager for database connections"""
     def __init__(self, connection_queue):
         self.connection_queue = connection_queue
         self.connection = None
@@ -984,4 +860,3 @@ class ConnectionContext:
             except Exception as e:
                 logger.error(f"Error returning connection to pool: {e}")
                 # Don't raise here to avoid masking the original exception
-    

@@ -1,6 +1,7 @@
 """
-Enhanced Configuration Manager with Simple Channel Support
-Supports @username, t.me/channel, and chat IDs with automatic parsing
+Enhanced Configuration Manager - CLEANED VERSION
+Supports current enhanced format only - migration complexity removed
+Handles @username, t.me/channel, and chat IDs with automatic parsing
 """
 
 import json
@@ -70,18 +71,26 @@ class ConfigManager:
         return None
     
     def load_channels_config(self):
-        """Load channels configuration"""
+        """Load channels configuration - current enhanced format only"""
         try:
             if self.channels_file.exists():
                 with open(self.channels_file, 'r') as f:
                     config = json.load(f)
                     
-                    # Handle both old format (strings) and new format (dicts)
-                    raw_bot_channels = config.get('channels', [])
-                    raw_user_channels = config.get('user_monitored_channels', [])
+                    # Extract chat_ids from current enhanced format
+                    bot_channels = config.get('channels', [])
+                    user_channels = config.get('user_monitored_channels', [])
                     
-                    self.channels_to_monitor = self._extract_chat_ids(raw_bot_channels)
-                    self.user_monitored_channels = self._extract_chat_ids(raw_user_channels)
+                    # Only handle current enhanced format (dict with chat_id)
+                    self.channels_to_monitor = []
+                    for ch in bot_channels:
+                        if isinstance(ch, dict) and 'chat_id' in ch:
+                            self.channels_to_monitor.append(ch['chat_id'])
+                    
+                    self.user_monitored_channels = []
+                    for ch in user_channels:
+                        if isinstance(ch, dict) and 'chat_id' in ch:
+                            self.user_monitored_channels.append(ch['chat_id'])
                     
                     logger.info(f"Loaded {len(self.channels_to_monitor)} bot channels, {len(self.user_monitored_channels)} user channels")
             else:
@@ -92,25 +101,6 @@ class ConfigManager:
             logger.error(f"Error loading channels config: {e}")
             self.channels_to_monitor = []
             self.user_monitored_channels = []
-    
-    def _extract_chat_ids(self, channels_list: List) -> List[int]:
-        """Extract chat_ids from channels list (handles both old and new format)"""
-        chat_ids = []
-        for item in channels_list:
-            if isinstance(item, dict):
-                # New format
-                chat_id = item.get('chat_id')
-                if chat_id:
-                    chat_ids.append(chat_id)
-            elif isinstance(item, str):
-                # Old format - try to parse
-                if item.lstrip('-').isdigit():
-                    chat_ids.append(int(item))
-                else:
-                    # Generate consistent fake ID for migration
-                    fake_id = hash(item) % 1000000000
-                    chat_ids.append(fake_id)
-        return chat_ids
     
     def export_channels_config(self, bot_channels: List[Dict], user_channels: List[Dict]):
         """Export channels configuration with backup - enhanced format"""
@@ -135,8 +125,8 @@ class ConfigManager:
             logger.info(f"Exported enhanced channels config: {len(bot_channels)} bot, {len(user_channels)} user")
             
             # Update internal state
-            self.channels_to_monitor = self._extract_chat_ids(bot_channels)
-            self.user_monitored_channels = self._extract_chat_ids(user_channels)
+            self.channels_to_monitor = [ch['chat_id'] for ch in bot_channels if 'chat_id' in ch]
+            self.user_monitored_channels = [ch['chat_id'] for ch in user_channels if 'chat_id' in ch]
             
         except Exception as e:
             logger.error(f"Failed to export channels config: {e}")
@@ -254,7 +244,7 @@ class ConfigManager:
             logger.error(f"Failed to load users config: {e}")
             return []
     
-    # Legacy methods for compatibility with existing code
+    # Public API methods for compatibility with existing code
     def get_channels_to_monitor(self) -> List[int]:
         """Get list of chat IDs for bot to monitor"""
         return self.channels_to_monitor.copy()
