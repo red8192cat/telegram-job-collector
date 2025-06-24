@@ -1,7 +1,5 @@
 """
-Command Handlers - Enhanced with improved admin channel management
-All user-facing messages are now translated based on user's language preference
-UPDATED: Enhanced admin channel management with flexible input formats
+Command Handlers - admin channel management
 """
 
 import logging
