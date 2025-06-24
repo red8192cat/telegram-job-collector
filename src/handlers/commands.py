@@ -392,12 +392,12 @@ class CommandHandlers:
         
         if not context.args:
             await update.message.reply_text(
-                "📋 **Enhanced Admin Commands**\n\n"
+                "📋 **Admin Commands**\n\n"
                 "**System:**\n"
                 "• `/admin health` - System health check\n"
                 "• `/admin stats` - Database statistics\n"
                 "• `/admin errors` - Show recent errors\n\n"
-                "**Enhanced Channel Management:**\n"
+                "**Channel Management:**\n"
                 "• `/admin channels` - List all channels (improved display)\n"
                 "• `/admin add_bot_channel <channel>` - Add bot channel\n"
                 "• `/admin add_user_channel <channel>` - Add user channel\n"
@@ -412,11 +412,7 @@ class CommandHandlers:
                 "• `@channelname`\n"
                 "• `t.me/channelname`\n"
                 "• `https://t.me/channelname`\n"
-                "• `-1001234567890` (chat ID)\n\n"
-                "**New Features:**\n"
-                "• Flexible channel removal (by username/URL/ID)\n"
-                "• Better channel listing with removal commands\n"
-                "• Admin status validation for bot channels",
+                "• `-1001234567890` (chat ID)",
                 parse_mode='Markdown'
             )
             return
