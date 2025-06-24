@@ -1,13 +1,15 @@
 """
-Callback Handlers - Updated with manage_keywords flow and stop monitoring
-All user-facing messages are now translated based on user's language preference
+Callback Handlers - PRODUCTION VERSION
+Integrated with BotConfig and event system
 """
 
 import logging
 from telegram import Update
 from telegram.ext import CallbackQueryHandler, ContextTypes
 
+from config import BotConfig
 from storage.sqlite_manager import SQLiteManager
+from events import get_event_bus, EventType
 from utils.helpers import (
     create_main_menu, create_back_menu, create_ignore_keywords_help_keyboard, 
     create_keywords_help_keyboard, create_language_selection_keyboard,
@@ -20,13 +22,16 @@ from utils.translations import get_text, is_supported_language
 logger = logging.getLogger(__name__)
 
 class CallbackHandlers:
-    def __init__(self, data_manager: SQLiteManager):
+    def __init__(self, config: BotConfig, data_manager: SQLiteManager):
+        self.config = config
         self.data_manager = data_manager
+        self.event_bus = get_event_bus()
+        logger.info("Callback handlers initialized with configuration")
     
     def register(self, app):
         """Register callback query handler"""
         app.add_handler(CallbackQueryHandler(self.handle_callback_query))
-        logger.info("Callback query handler with manage_keywords flow registered")
+        logger.info("Callback query handler registered")
     
     async def handle_callback_query(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle callback queries from inline buttons"""
@@ -41,6 +46,7 @@ class CallbackHandlers:
         language = await self.data_manager.get_user_language(user_id)
         
         try:
+            # Answer the callback query immediately to remove loading state
             await query.answer()
             
             # Language selection callbacks
@@ -55,7 +61,11 @@ class CallbackHandlers:
                 
             elif query.data == "menu_help":
                 help_text = get_text("help_text", language)
-                await query.edit_message_text(help_text, reply_markup=create_back_menu(language))
+                await query.edit_message_text(
+                    help_text, 
+                    reply_markup=create_back_menu(language),
+                    parse_mode='Markdown' if '*' in help_text else None
+                )
                 
             elif query.data == "menu_language":
                 # Show language selection
@@ -84,14 +94,25 @@ class CallbackHandlers:
             elif query.data == "confirm_stop_monitoring":
                 await self._handle_confirm_stop_monitoring(query, context, language)
                 
+            else:
+                logger.warning(f"Unknown callback data: {query.data}")
+                
         except Exception as e:
             logger.error(f"Error handling callback query: {e}")
             # Try to answer the callback to prevent loading state
             try:
                 error_msg = get_text("error_occurred", language)
                 await query.answer(error_msg)
-            except:
+            except Exception:
                 pass
+            
+            # Emit error event
+            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                'component': 'callback_handlers',
+                'error': str(e),
+                'callback_data': query.data,
+                'user_id': user_id
+            }, source='callback_handlers')
     
     async def _handle_language_selection(self, query, context, current_language):
         """Handle language selection from callback"""
@@ -114,6 +135,13 @@ class CallbackHandlers:
         await query.edit_message_text(success_msg, reply_markup=create_back_menu(selected_language))
         
         logger.info(f"User {user_id} changed language to {selected_language}")
+        
+        # Emit language change event
+        await self.event_bus.emit(EventType.USER_LANGUAGE_CHANGED, {
+            'user_id': user_id,
+            'old_language': current_language,
+            'new_language': selected_language
+        }, source='callback_handlers')
     
     async def _handle_manage_keywords(self, query, context, language):
         """Handle manage keywords menu"""
@@ -173,6 +201,15 @@ class CallbackHandlers:
             if result:
                 success_message = get_text("ignore_cleared_success", language)
                 await query.edit_message_text(success_message, reply_markup=create_back_menu(language))
+                
+                # Emit event for ignore keywords cleared
+                await self.event_bus.emit(EventType.USER_KEYWORDS_UPDATED, {
+                    'user_id': user_id,
+                    'action': 'ignore_keywords_cleared',
+                    'keywords': [],
+                    'ignore_keywords': []
+                }, source='callback_handlers')
+                
             else:
                 no_keywords_message = get_text("ignore_cleared_none", language)
                 await query.edit_message_text(no_keywords_message, reply_markup=create_back_menu(language))
@@ -181,6 +218,14 @@ class CallbackHandlers:
             logger.error(f"Error clearing ignore keywords: {e}")
             error_msg = get_text("error_occurred", language)
             await query.edit_message_text(error_msg, reply_markup=create_back_menu(language))
+            
+            # Emit error event
+            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                'component': 'callback_handlers',
+                'error': str(e),
+                'operation': 'clear_ignore_keywords',
+                'user_id': user_id
+            }, source='callback_handlers')
     
     async def _handle_stop_monitoring_confirm(self, query, context, language):
         """Handle stop monitoring confirmation dialog"""
@@ -195,6 +240,10 @@ class CallbackHandlers:
         logger.info(f"Stop monitoring confirmed by user {user_id}")
         
         try:
+            # Get current keywords for event
+            current_keywords = await self.data_manager.get_user_keywords(user_id)
+            current_ignore = await self.data_manager.get_user_ignore_keywords(user_id)
+            
             # Clear all keywords and ignore keywords
             await self.data_manager.set_user_keywords(user_id, [])
             await self.data_manager.set_user_ignore_keywords(user_id, [])
@@ -207,7 +256,25 @@ class CallbackHandlers:
             
             logger.info(f"User {user_id} stopped monitoring - all keywords cleared")
             
+            # Emit monitoring stopped event
+            await self.event_bus.emit(EventType.USER_KEYWORDS_UPDATED, {
+                'user_id': user_id,
+                'action': 'monitoring_stopped',
+                'old_keywords': current_keywords,
+                'old_ignore_keywords': current_ignore,
+                'keywords': [],
+                'ignore_keywords': []
+            }, source='callback_handlers')
+            
         except Exception as e:
             logger.error(f"Error stopping monitoring for user {user_id}: {e}")
             error_msg = get_text("error_occurred", language)
             await query.edit_message_text(error_msg, reply_markup=create_back_menu(language))
+            
+            # Emit error event
+            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                'component': 'callback_handlers',
+                'error': str(e),
+                'operation': 'stop_monitoring',
+                'user_id': user_id
+            }, source='callback_handlers')

@@ -1,7 +1,6 @@
 """
-High-Performance SQLite Manager - CLEANED VERSION
-Enhanced with Simple Channel Management and proper connection handling
-Migration complexity removed - uses current enhanced format only
+High-Performance SQLite Manager - PRODUCTION VERSION
+Uses BotConfig for all settings, emits events, database-only configuration
 """
 
 import aiosqlite
@@ -9,17 +8,22 @@ import asyncio
 import logging
 import os
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+
+from config import BotConfig
+from events import get_event_bus, EventType
 
 logger = logging.getLogger(__name__)
 
 class SQLiteManager:
-    def __init__(self, db_path: str = "data/bot.db"):
-        self.db_path = db_path
-        self._pool_size = 5  # Reduced pool size to prevent issues
+    def __init__(self, config: BotConfig):
+        self.config = config
+        self.db_path = config.DATABASE_PATH
+        self._pool_size = config.DB_POOL_SIZE
         self._available_connections = asyncio.Queue(maxsize=self._pool_size)
         self._initialized = False
-        self._lock = asyncio.Lock()  # Added lock for thread safety
+        self._lock = asyncio.Lock()
+        self.event_bus = get_event_bus()
         
     async def initialize(self):
         """Initialize database with optimizations for high performance"""
@@ -36,7 +40,7 @@ class SQLiteManager:
                     await test_conn.execute("SELECT 1")
                     logger.info("✅ Database file accessible")
                 
-                # Create connection pool AFTER setting initialized flag
+                # Create connection pool
                 self._initialized = True
                 
                 for i in range(self._pool_size):
@@ -50,24 +54,34 @@ class SQLiteManager:
                 
                 logger.info(f"✅ SQLite initialized: {self.db_path} (pool size: {self._pool_size})")
                 
+                # Emit startup event
+                await self.event_bus.emit(EventType.SYSTEM_STARTUP, {
+                    'component': 'database',
+                    'pool_size': self._pool_size,
+                    'db_path': self.db_path
+                }, source='sqlite_manager')
+                
             except Exception as e:
                 self._initialized = False
                 logger.error(f"❌ Database initialization failed: {e}")
+                await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                    'component': 'database',
+                    'error': str(e),
+                    'operation': 'initialize'
+                }, source='sqlite_manager')
                 raise
     
     async def _configure_connection(self, conn):
         """Configure connection for maximum performance"""
         try:
-            # Performance optimizations
+            # Performance optimizations using config values
             await conn.execute("PRAGMA journal_mode=WAL")
             await conn.execute("PRAGMA synchronous=NORMAL")
-            await conn.execute("PRAGMA cache_size=10000")  # Reduced cache size
+            await conn.execute(f"PRAGMA cache_size={self.config.CACHE_SIZE}")
             await conn.execute("PRAGMA temp_store=memory")
             await conn.execute("PRAGMA foreign_keys=ON")
             await conn.execute("PRAGMA wal_autocheckpoint=1000")
-            
-            # Set busy timeout to handle concurrent access
-            await conn.execute("PRAGMA busy_timeout=30000")  # 30 second timeout
+            await conn.execute(f"PRAGMA busy_timeout={self.config.DB_BUSY_TIMEOUT}")
             
         except Exception as e:
             logger.error(f"Error configuring connection: {e}")
@@ -99,15 +113,26 @@ class SQLiteManager:
                     created_at TEXT DEFAULT (datetime('now')),
                     last_active TEXT DEFAULT (datetime('now')),
                     total_forwards INTEGER DEFAULT 0,
-                    language TEXT DEFAULT 'en'
+                    daily_forwards INTEGER DEFAULT 0,
+                    last_forward_date TEXT DEFAULT (date('now')),
+                    language TEXT DEFAULT ?
                 )
-            """)
+            """, (self.config.DEFAULT_LANGUAGE,))
             
-            # Add language column to existing users table (migration)
+            # Add new columns to existing users table (safe migrations)
             try:
-                await conn.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en'")
+                await conn.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT ?", (self.config.DEFAULT_LANGUAGE,))
             except Exception:
-                # Column already exists, ignore error
+                pass  # Column already exists
+            
+            try:
+                await conn.execute("ALTER TABLE users ADD COLUMN daily_forwards INTEGER DEFAULT 0")
+            except Exception:
+                pass
+                
+            try:
+                await conn.execute("ALTER TABLE users ADD COLUMN last_forward_date TEXT DEFAULT (date('now'))")
+            except Exception:
                 pass
             
             # User keywords
@@ -141,6 +166,7 @@ class SQLiteManager:
                     user_id INTEGER NOT NULL,
                     channel_id INTEGER NOT NULL,
                     message_id INTEGER NOT NULL,
+                    keywords_matched TEXT,
                     forwarded_at TEXT DEFAULT (datetime('now')),
                     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
                     UNIQUE(user_id, channel_id, message_id)
@@ -156,14 +182,14 @@ class SQLiteManager:
                 "CREATE INDEX IF NOT EXISTS idx_message_forwards_dedup ON message_forwards(user_id, channel_id, message_id)",
                 "CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active)",
                 "CREATE INDEX IF NOT EXISTS idx_message_forwards_forwarded_at ON message_forwards(forwarded_at)",
-                "CREATE INDEX IF NOT EXISTS idx_users_language ON users(language)"
+                "CREATE INDEX IF NOT EXISTS idx_users_language ON users(language)",
+                "CREATE INDEX IF NOT EXISTS idx_users_daily_forwards ON users(daily_forwards, last_forward_date)"
             ]
             
             for index in indexes:
                 try:
                     await conn.execute(index)
                 except Exception as e:
-                    # Index might already exist, log but continue
                     logger.debug(f"Index creation warning: {e}")
             
             await conn.commit()
@@ -192,7 +218,7 @@ class SQLiteManager:
         """Get database connection from pool"""
         if not self._initialized:
             raise RuntimeError("Database not initialized. Call initialize() first.")
-        return ConnectionContext(self._available_connections)
+        return ConnectionContext(self._available_connections, self.config.CONNECTION_POOL_TIMEOUT)
     
     async def close(self):
         """Close all connections"""
@@ -212,6 +238,11 @@ class SQLiteManager:
                 self._initialized = False
                 logger.info(f"✅ SQLite connections closed ({connections_closed} connections)")
                 
+                await self.event_bus.emit(EventType.SYSTEM_SHUTDOWN, {
+                    'component': 'database',
+                    'connections_closed': connections_closed
+                }, source='sqlite_manager')
+                
             except Exception as e:
                 logger.error(f"Error during database close: {e}")
     
@@ -227,6 +258,14 @@ class SQLiteManager:
                 """, (chat_id, username, channel_type))
                 await conn.commit()
                 logger.info(f"✅ Added {channel_type} channel: {username or chat_id}")
+                
+                # Emit event
+                await self.event_bus.emit(EventType.CHANNEL_ADDED, {
+                    'chat_id': chat_id,
+                    'username': username,
+                    'type': channel_type
+                }, source='sqlite_manager')
+                
                 return True
         except aiosqlite.IntegrityError:
             logger.warning(f"Channel already exists: {username or chat_id}")
@@ -280,6 +319,13 @@ class SQLiteManager:
                 success = cursor.rowcount > 0
                 if success:
                     logger.info(f"✅ Removed {channel_type} channel: {chat_id}")
+                    
+                    # Emit event
+                    await self.event_bus.emit(EventType.CHANNEL_REMOVED, {
+                        'chat_id': chat_id,
+                        'type': channel_type
+                    }, source='sqlite_manager')
+                    
                 return success
         except Exception as e:
             logger.error(f"Error removing channel: {e}")
@@ -337,35 +383,178 @@ class SQLiteManager:
             logger.error(f"Error getting channels with usernames: {e}")
             return {}
 
-    async def find_channel_by_chat_id(self, chat_id: int) -> Optional[dict]:
-        """Find channel by chat_id"""
+    # User management methods with config integration
+    async def ensure_user_exists(self, user_id: int, language: str = None):
+        """Ensure user exists in database with language preference"""
+        try:
+            if language is None:
+                language = self.config.DEFAULT_LANGUAGE
+                
+            async with self._get_connection() as conn:
+                # Check if user exists
+                async with conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)) as cursor:
+                    exists = await cursor.fetchone()
+                
+                if not exists:
+                    # Create new user
+                    await conn.execute("""
+                        INSERT INTO users (id, last_active, language) 
+                        VALUES (?, datetime('now'), ?)
+                    """, (user_id, language))
+                    
+                    # Emit user registered event
+                    await self.event_bus.emit(EventType.USER_REGISTERED, {
+                        'user_id': user_id,
+                        'language': language
+                    }, source='sqlite_manager')
+                else:
+                    # Update last active
+                    await conn.execute("""
+                        UPDATE users SET last_active = datetime('now') 
+                        WHERE id = ?
+                    """, (user_id,))
+                
+                await conn.commit()
+        except Exception as e:
+            logger.error(f"Error ensuring user exists: {e}")
+    
+    async def set_user_keywords(self, user_id: int, keywords: List[str]):
+        """Set keywords for a specific user (replaces all existing)"""
+        # Validate keyword limits
+        if len(keywords) > self.config.MAX_KEYWORDS_PER_USER:
+            raise ValueError(f"Too many keywords. Maximum allowed: {self.config.MAX_KEYWORDS_PER_USER}")
+        
+        # Validate keyword length
+        for keyword in keywords:
+            if len(keyword) > self.config.MAX_KEYWORD_LENGTH:
+                raise ValueError(f"Keyword too long: {keyword}. Maximum length: {self.config.MAX_KEYWORD_LENGTH}")
+        
+        try:
+            await self.ensure_user_exists(user_id)
+            
+            async with self._get_connection() as conn:
+                await conn.execute("BEGIN TRANSACTION")
+                try:
+                    await conn.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
+                    if keywords:
+                        await conn.executemany(
+                            "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
+                            [(user_id, keyword.lower()) for keyword in keywords]
+                        )
+                    await conn.commit()
+                    logger.info(f"✅ Set {len(keywords)} keywords for user {user_id}")
+                    
+                    # Emit event
+                    await self.event_bus.emit(EventType.USER_KEYWORDS_UPDATED, {
+                        'user_id': user_id,
+                        'keywords': keywords,
+                        'keyword_count': len(keywords)
+                    }, source='sqlite_manager')
+                    
+                except Exception:
+                    await conn.rollback()
+                    raise
+        except Exception as e:
+            logger.error(f"Error setting user keywords: {e}")
+            raise
+    
+    async def set_user_ignore_keywords(self, user_id: int, keywords: List[str]):
+        """Set ignore keywords for a specific user"""
+        # Validate ignore keyword limits
+        if len(keywords) > self.config.MAX_IGNORE_KEYWORDS:
+            raise ValueError(f"Too many ignore keywords. Maximum allowed: {self.config.MAX_IGNORE_KEYWORDS}")
+        
+        try:
+            await self.ensure_user_exists(user_id)
+            
+            async with self._get_connection() as conn:
+                await conn.execute("BEGIN TRANSACTION")
+                try:
+                    await conn.execute("DELETE FROM user_ignore_keywords WHERE user_id = ?", (user_id,))
+                    if keywords:
+                        await conn.executemany(
+                            "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
+                            [(user_id, keyword.lower()) for keyword in keywords]
+                        )
+                    await conn.commit()
+                    logger.info(f"✅ Set {len(keywords)} ignore keywords for user {user_id}")
+                except Exception:
+                    await conn.rollback()
+                    raise
+        except Exception as e:
+            logger.error(f"Error setting user ignore keywords: {e}")
+            raise
+    
+    async def check_user_limit(self, user_id: int) -> bool:
+        """Check if user has reached daily limit"""
         try:
             async with self._get_connection() as conn:
                 async with conn.execute("""
-                    SELECT chat_id, username, type 
-                    FROM monitored_channels 
-                    WHERE chat_id = ? AND status = 'active'
-                """, (chat_id,)) as cursor:
+                    SELECT daily_forwards, last_forward_date 
+                    FROM users WHERE id = ?
+                """, (user_id,)) as cursor:
                     row = await cursor.fetchone()
                     
-                    if row:
-                        return {
-                            'chat_id': row[0],
-                            'username': row[1],
-                            'type': row[2]
-                        }
+                    if not row:
+                        return True  # New user, allow
                     
-                    return None
+                    daily_forwards, last_date = row
+                    today = datetime.now().date().isoformat()
+                    
+                    # Reset counter if new day
+                    if last_date != today:
+                        await conn.execute("""
+                            UPDATE users 
+                            SET daily_forwards = 0, last_forward_date = ? 
+                            WHERE id = ?
+                        """, (today, user_id))
+                        await conn.commit()
+                        return True
+                    
+                    # Check limit
+                    return daily_forwards < self.config.MAX_DAILY_FORWARDS_PER_USER
+                    
         except Exception as e:
-            logger.error(f"Error finding channel: {e}")
-            return None
-
-    # Compatibility methods for existing code
-    async def init_channels_table(self):
-        """Legacy compatibility - already handled in _create_schema"""
-        pass
+            logger.error(f"Error checking user limit: {e}")
+            return True  # On error, allow (fail open)
     
-    # Language Support Methods
+    async def log_message_forward(self, user_id: int, channel_id: int, message_id: int, 
+                                keywords_matched: List[str] = None):
+        """Log a forwarded message with enhanced tracking"""
+        try:
+            keywords_str = ",".join(keywords_matched) if keywords_matched else ""
+            
+            async with self._get_connection() as conn:
+                await conn.execute("BEGIN TRANSACTION")
+                try:
+                    await conn.execute(
+                        "INSERT INTO message_forwards (user_id, channel_id, message_id, keywords_matched) VALUES (?, ?, ?, ?)",
+                        (user_id, channel_id, message_id, keywords_str)
+                    )
+                    await conn.execute(
+                        "UPDATE users SET total_forwards = total_forwards + 1, daily_forwards = daily_forwards + 1, last_forward_date = date('now') WHERE id = ?",
+                        (user_id,)
+                    )
+                    await conn.commit()
+                    
+                    # Emit event
+                    await self.event_bus.emit(EventType.JOB_MESSAGE_FORWARDED, {
+                        'user_id': user_id,
+                        'channel_id': channel_id,
+                        'message_id': message_id,
+                        'keywords_matched': keywords_matched or []
+                    }, source='sqlite_manager')
+                    
+                except aiosqlite.IntegrityError:
+                    # Duplicate forward - ignore
+                    await conn.rollback()
+                except Exception:
+                    await conn.rollback()
+                    raise
+        except Exception as e:
+            logger.error(f"Error logging message forward: {e}")
+    
+    # Language support methods
     async def get_user_language(self, user_id: int) -> str:
         """Get user's preferred language"""
         try:
@@ -375,14 +564,14 @@ class SQLiteManager:
                 ) as cursor:
                     row = await cursor.fetchone()
                     if row:
-                        return row[0] or 'en'
+                        return row[0] or self.config.DEFAULT_LANGUAGE
                     else:
                         # Create user with default language
                         await self.ensure_user_exists(user_id)
-                        return 'en'
+                        return self.config.DEFAULT_LANGUAGE
         except Exception as e:
             logger.error(f"Error getting user language: {e}")
-            return 'en'
+            return self.config.DEFAULT_LANGUAGE
 
     async def set_user_language(self, user_id: int, language: str):
         """Set user's preferred language"""
@@ -395,52 +584,17 @@ class SQLiteManager:
                 )
                 await conn.commit()
                 logger.info(f"✅ Set user {user_id} language to {language}")
+                
+                # Emit event
+                await self.event_bus.emit(EventType.USER_LANGUAGE_CHANGED, {
+                    'user_id': user_id,
+                    'language': language
+                }, source='sqlite_manager')
+                
         except Exception as e:
             logger.error(f"Error setting user language: {e}")
 
-    async def get_users_by_language(self, language: str) -> List[int]:
-        """Get list of user IDs who use specific language"""
-        try:
-            async with self._get_connection() as conn:
-                async with conn.execute(
-                    "SELECT id FROM users WHERE language = ?", (language,)
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    return [row[0] for row in rows]
-        except Exception as e:
-            logger.error(f"Error getting users by language: {e}")
-            return []
-
-    async def get_language_statistics(self) -> Dict[str, int]:
-        """Get statistics about language usage"""
-        try:
-            async with self._get_connection() as conn:
-                async with conn.execute(
-                    "SELECT language, COUNT(*) as count FROM users GROUP BY language"
-                ) as cursor:
-                    rows = await cursor.fetchall()
-                    return {row[0]: row[1] for row in rows}
-        except Exception as e:
-            logger.error(f"Error getting language statistics: {e}")
-            return {}
-    
-    # User management methods
-    async def ensure_user_exists(self, user_id: int, language: str = 'en'):
-        """Ensure user exists in database with language preference"""
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("""
-                    INSERT OR IGNORE INTO users (id, last_active, language) 
-                    VALUES (?, datetime('now'), ?)
-                """, (user_id, language))
-                await conn.execute("""
-                    UPDATE users SET last_active = datetime('now') 
-                    WHERE id = ?
-                """, (user_id,))
-                await conn.commit()
-        except Exception as e:
-            logger.error(f"Error ensuring user exists: {e}")
-    
+    # Standard methods (keeping existing functionality)
     async def get_user_keywords(self, user_id: int) -> List[str]:
         """Get keywords for a specific user"""
         try:
@@ -455,61 +609,6 @@ class SQLiteManager:
             logger.error(f"Error getting user keywords: {e}")
             return []
     
-    async def set_user_keywords(self, user_id: int, keywords: List[str]):
-        """Set keywords for a specific user (replaces all existing)"""
-        try:
-            await self.ensure_user_exists(user_id)
-            
-            async with self._get_connection() as conn:
-                await conn.execute("BEGIN TRANSACTION")
-                try:
-                    await conn.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
-                    if keywords:
-                        await conn.executemany(
-                            "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
-                            [(user_id, keyword) for keyword in keywords]
-                        )
-                    await conn.commit()
-                    logger.info(f"✅ Set {len(keywords)} keywords for user {user_id}")
-                except Exception:
-                    await conn.rollback()
-                    raise
-        except Exception as e:
-            logger.error(f"Error setting user keywords: {e}")
-            raise
-    
-    async def add_user_keyword(self, user_id: int, keyword: str) -> bool:
-        """Add a keyword for a user"""
-        try:
-            await self.ensure_user_exists(user_id)
-            
-            async with self._get_connection() as conn:
-                await conn.execute(
-                    "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
-                    (user_id, keyword)
-                )
-                await conn.commit()
-                return True
-        except aiosqlite.IntegrityError:
-            return False
-        except Exception as e:
-            logger.error(f"Error adding user keyword: {e}")
-            return False
-    
-    async def remove_user_keyword(self, user_id: int, keyword: str) -> bool:
-        """Remove a keyword for a user"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute(
-                    "DELETE FROM user_keywords WHERE user_id = ? AND keyword = ?",
-                    (user_id, keyword)
-                )
-                await conn.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Error removing user keyword: {e}")
-            return False
-    
     async def get_user_ignore_keywords(self, user_id: int) -> List[str]:
         """Get ignore keywords for a specific user"""
         try:
@@ -523,61 +622,6 @@ class SQLiteManager:
         except Exception as e:
             logger.error(f"Error getting user ignore keywords: {e}")
             return []
-    
-    async def set_user_ignore_keywords(self, user_id: int, keywords: List[str]):
-        """Set ignore keywords for a specific user"""
-        try:
-            await self.ensure_user_exists(user_id)
-            
-            async with self._get_connection() as conn:
-                await conn.execute("BEGIN TRANSACTION")
-                try:
-                    await conn.execute("DELETE FROM user_ignore_keywords WHERE user_id = ?", (user_id,))
-                    if keywords:
-                        await conn.executemany(
-                            "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
-                            [(user_id, keyword) for keyword in keywords]
-                        )
-                    await conn.commit()
-                    logger.info(f"✅ Set {len(keywords)} ignore keywords for user {user_id}")
-                except Exception:
-                    await conn.rollback()
-                    raise
-        except Exception as e:
-            logger.error(f"Error setting user ignore keywords: {e}")
-            raise
-    
-    async def add_user_ignore_keyword(self, user_id: int, keyword: str) -> bool:
-        """Add an ignore keyword for a user"""
-        try:
-            await self.ensure_user_exists(user_id)
-            
-            async with self._get_connection() as conn:
-                await conn.execute(
-                    "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
-                    (user_id, keyword)
-                )
-                await conn.commit()
-                return True
-        except aiosqlite.IntegrityError:
-            return False
-        except Exception as e:
-            logger.error(f"Error adding user ignore keyword: {e}")
-            return False
-    
-    async def remove_user_ignore_keyword(self, user_id: int, keyword: str) -> bool:
-        """Remove an ignore keyword for a user"""
-        try:
-            async with self._get_connection() as conn:
-                cursor = await conn.execute(
-                    "DELETE FROM user_ignore_keywords WHERE user_id = ? AND keyword = ?",
-                    (user_id, keyword)
-                )
-                await conn.commit()
-                return cursor.rowcount > 0
-        except Exception as e:
-            logger.error(f"Error removing user ignore keyword: {e}")
-            return False
     
     async def purge_user_ignore_keywords(self, user_id: int) -> bool:
         """Remove all ignore keywords for a user"""
@@ -618,36 +662,11 @@ class SQLiteManager:
             logger.error(f"Error getting all users with keywords: {e}")
             return {}
     
-    async def log_message_forward(self, user_id: int, channel_id: int, message_id: int):
-        """Log a forwarded message"""
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("BEGIN TRANSACTION")
-                try:
-                    await conn.execute(
-                        "INSERT INTO message_forwards (user_id, channel_id, message_id) VALUES (?, ?, ?)",
-                        (user_id, channel_id, message_id)
-                    )
-                    await conn.execute(
-                        "UPDATE users SET total_forwards = total_forwards + 1 WHERE id = ?",
-                        (user_id,)
-                    )
-                    await conn.commit()
-                except aiosqlite.IntegrityError:
-                    # Duplicate forward - ignore
-                    await conn.rollback()
-                except Exception:
-                    await conn.rollback()
-                    raise
-        except Exception as e:
-            logger.error(f"Error logging message forward: {e}")
-    
-    async def check_user_limit(self, user_id: int) -> bool:
-        """Check if user has reached daily limit - placeholder"""
-        return True
-    
-    async def cleanup_old_data(self, days: int = 30):
+    async def cleanup_old_data(self, days: int = None):
         """Clean up old message forward logs"""
+        if days is None:
+            days = self.config.BACKUP_RETENTION_DAYS
+            
         try:
             async with self._get_connection() as conn:
                 cursor = await conn.execute(
@@ -661,190 +680,63 @@ class SQLiteManager:
         except Exception as e:
             logger.error(f"Error cleaning up old data: {e}")
             return 0
-
-    # Export/Import Methods for Configuration Management
-    async def export_all_channels_for_config(self):
-        """Export all channels for config file - simple format"""
-        try:
-            async with self._get_connection() as conn:
-                async with conn.execute("""
-                    SELECT chat_id, username, type 
-                    FROM monitored_channels 
-                    WHERE status = 'active'
-                    ORDER BY type, username
-                """) as cursor:
-                    rows = await cursor.fetchall()
-                    
-                    bot_channels = []
-                    user_channels = []
-                    
-                    for chat_id, username, channel_type in rows:
-                        channel_data = {
-                            'chat_id': chat_id,
-                            'username': username
-                        }
-                        
-                        if channel_type == 'bot':
-                            bot_channels.append(channel_data)
-                        else:
-                            user_channels.append(channel_data)
-                    
-                    return bot_channels, user_channels
-        except Exception as e:
-            logger.error(f"Error exporting channels: {e}")
-            return [], []
     
-    async def export_all_users_for_config(self):
-        """Export all users with their data for config file"""
+    # Statistics and monitoring methods
+    async def get_system_stats(self) -> Dict[str, any]:
+        """Get comprehensive system statistics"""
         try:
             async with self._get_connection() as conn:
-                async with conn.execute("""
-                    SELECT 
-                        u.id,
-                        u.created_at,
-                        u.last_active,
-                        u.total_forwards,
-                        u.language,
-                        GROUP_CONCAT(DISTINCT uk.keyword) as keywords,
-                        GROUP_CONCAT(DISTINCT uik.keyword) as ignore_keywords
-                    FROM users u
-                    LEFT JOIN user_keywords uk ON u.id = uk.user_id
-                    LEFT JOIN user_ignore_keywords uik ON u.id = uik.user_id
-                    GROUP BY u.id
-                    ORDER BY u.id
-                """) as cursor:
-                    rows = await cursor.fetchall()
-                    
-                    users_data = []
-                    for row in rows:
-                        user_data = {
-                            'user_id': row[0],
-                            'created_at': row[1],
-                            'last_active': row[2], 
-                            'total_forwards': row[3] or 0,
-                            'language': row[4] or 'en',
-                            'keywords': row[5].split(',') if row[5] else [],
-                            'ignore_keywords': row[6].split(',') if row[6] else []
-                        }
-                        users_data.append(user_data)
-                    
-                    return users_data
+                stats = {}
+                
+                # User stats
+                async with conn.execute("SELECT COUNT(*) FROM users") as cursor:
+                    stats['total_users'] = (await cursor.fetchone())[0]
+                
+                # Channel stats
+                async with conn.execute("SELECT type, COUNT(*) FROM monitored_channels WHERE status='active' GROUP BY type") as cursor:
+                    channel_stats = await cursor.fetchall()
+                    stats['channels'] = {row[0]: row[1] for row in channel_stats}
+                
+                # Keyword stats
+                async with conn.execute("SELECT COUNT(*) FROM user_keywords") as cursor:
+                    stats['total_keywords'] = (await cursor.fetchone())[0]
+                
+                # Forward stats (last 24h)
+                async with conn.execute("SELECT COUNT(*) FROM message_forwards WHERE forwarded_at > datetime('now', '-1 day')") as cursor:
+                    stats['forwards_24h'] = (await cursor.fetchone())[0]
+                
+                # Language distribution
+                async with conn.execute("SELECT language, COUNT(*) FROM users GROUP BY language") as cursor:
+                    language_stats = await cursor.fetchall()
+                    stats['languages'] = {row[0]: row[1] for row in language_stats}
+                
+                return stats
         except Exception as e:
-            logger.error(f"Error exporting users: {e}")
-            return []
+            logger.error(f"Error getting system stats: {e}")
+            return {}
     
-    async def import_channels_from_config(self, bot_channels, user_channels):
-        """Import channels from config (replace existing)"""
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("BEGIN TRANSACTION")
-                try:
-                    # Clear existing channels
-                    await conn.execute("DELETE FROM monitored_channels")
-                    
-                    # Import bot channels
-                    for channel in bot_channels:
-                        chat_id = channel.get('chat_id')
-                        username = channel.get('username')
-                        
-                        if chat_id:
-                            await conn.execute(
-                                "INSERT INTO monitored_channels (chat_id, username, type) VALUES (?, ?, ?)",
-                                (chat_id, username, 'bot')
-                            )
-                    
-                    # Import user channels  
-                    for channel in user_channels:
-                        chat_id = channel.get('chat_id')
-                        username = channel.get('username')
-                        
-                        if chat_id:
-                            await conn.execute(
-                                "INSERT INTO monitored_channels (chat_id, username, type) VALUES (?, ?, ?)",
-                                (chat_id, username, 'user')
-                            )
-                    
-                    await conn.commit()
-                    logger.info(f"✅ Imported {len(bot_channels)} bot channels, {len(user_channels)} user channels")
-                    
-                except Exception:
-                    await conn.rollback()
-                    raise
-        except Exception as e:
-            logger.error(f"Error importing channels: {e}")
-            raise
-    
-    async def import_users_from_config(self, users_data):
-        """Import users from config (replace existing)"""
-        try:
-            async with self._get_connection() as conn:
-                await conn.execute("BEGIN TRANSACTION")
-                try:
-                    # Clear existing user data
-                    await conn.execute("DELETE FROM user_keywords")
-                    await conn.execute("DELETE FROM user_ignore_keywords") 
-                    await conn.execute("DELETE FROM users")
-                    
-                    # Import users
-                    for user in users_data:
-                        user_id = user.get('user_id')
-                        if not user_id:
-                            continue
-                        
-                        # Insert user
-                        await conn.execute("""
-                            INSERT INTO users (id, created_at, last_active, total_forwards, language)
-                            VALUES (?, ?, ?, ?, ?)
-                        """, (
-                            user_id,
-                            user.get('created_at', datetime.now().isoformat()),
-                            user.get('last_active', datetime.now().isoformat()),
-                            user.get('total_forwards', 0),
-                            user.get('language', 'en')
-                        ))
-                        
-                        # Insert keywords
-                        for keyword in user.get('keywords', []):
-                            if keyword and keyword.strip():
-                                await conn.execute(
-                                    "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
-                                    (user_id, keyword.strip())
-                                )
-                        
-                        # Insert ignore keywords
-                        for keyword in user.get('ignore_keywords', []):
-                            if keyword and keyword.strip():
-                                await conn.execute(
-                                    "INSERT INTO user_ignore_keywords (user_id, keyword) VALUES (?, ?)",
-                                    (user_id, keyword.strip())
-                                )
-                    
-                    await conn.commit()
-                    logger.info(f"✅ Imported {len(users_data)} users")
-                    
-                except Exception:
-                    await conn.rollback()
-                    raise
-        except Exception as e:
-            logger.error(f"Error importing users: {e}")
-            raise
+    # Legacy compatibility methods
+    async def init_channels_table(self):
+        """Legacy compatibility - already handled in _create_schema"""
+        pass
 
 
 class ConnectionContext:
-    """Context manager for database connections"""
-    def __init__(self, connection_queue):
+    """Context manager for database connections with timeout"""
+    def __init__(self, connection_queue, timeout: int = 30):
         self.connection_queue = connection_queue
         self.connection = None
+        self.timeout = timeout
     
     async def __aenter__(self):
         try:
             self.connection = await asyncio.wait_for(
                 self.connection_queue.get(), 
-                timeout=30.0  # 30 second timeout
+                timeout=self.timeout
             )
             return self.connection
         except asyncio.TimeoutError:
-            raise RuntimeError("Database connection timeout - pool may be exhausted")
+            raise RuntimeError(f"Database connection timeout after {self.timeout}s - pool may be exhausted")
         except Exception as e:
             raise RuntimeError(f"Failed to get database connection: {e}")
     
