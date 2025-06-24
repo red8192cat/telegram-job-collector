@@ -705,8 +705,8 @@ class CommandHandlers:
                 await update.message.reply_text(
                     f"✅ **Bot channel added successfully!**\n\n"
                     f"📋 **Title:** {display_title}\n"
-                    f"🔗 **Username:** {username or 'None'}\n"
                     f"🆔 **Chat ID:** `{actual_chat_id}`\n"
+                    f"🔗 **Username:** {username or 'None'}\n"
                     f"📊 **Type:** Bot Channel (admin required)\n\n"
                     f"**Remove with:** `/admin remove_channel {username or actual_chat_id}`",
                     parse_mode='Markdown'
@@ -764,18 +764,14 @@ class CommandHandlers:
                 return
             
             # Try to get real chat info (might fail for private channels)
-            actual_title = None
             try:
                 chat = await context.bot.get_chat(chat_id if isinstance(chat_id, int) and chat_id > 1000000000 else username)
                 chat_id = chat.id
                 username = f"@{chat.username}" if chat.username else None
-                actual_title = chat.title  # Get the real channel title
-                display_name = actual_title or username or f"Channel {chat_id}"
-                logger.info(f"Successfully fetched channel info: title='{actual_title}', username='{username}'")
-            except Exception as e:
+                display_name = username or chat.title or f"Channel {chat_id}"
+            except Exception:
                 # Bot can't access - that's OK for user channels
-                logger.info(f"Bot cannot access user channel {channel_input} - will be validated by user monitor: {e}")
-                actual_title = None
+                logger.info(f"Bot cannot access user channel {channel_input} - will be validated by user monitor")
             
             # Add to database
             success = await self.data_manager.add_channel_simple(chat_id, username, 'user')
@@ -784,21 +780,10 @@ class CommandHandlers:
                 # Export to config
                 await self._export_enhanced_config()
                 
-                # Better success message with proper title display
                 message = f"✅ **User channel added successfully!**\n\n"
-                
-                if actual_title and actual_title != username:
-                    # Show both title and username when they're different
-                    message += f"📋 **Title:** {actual_title}\n"
-                    message += f"🔗 **Username:** {username or 'None'}\n"
-                elif username:
-                    # Show only username when no title available
-                    message += f"📋 **Channel:** {username}\n"
-                else:
-                    # Fallback to chat ID display
-                    message += f"📋 **Channel:** Channel {chat_id}\n"
-                
-                message += f"🆔 **Chat ID:** `{chat_id}`\n\n"
+                message += f"📋 **Name:** {display_name}\n"
+                message += f"🆔 **Chat ID:** `{chat_id}`\n"
+                message += f"🔗 **Username:** {username or 'None'}\n\n"
                 message += f"💡 **Note:** User monitor will validate and auto-join this channel"
                 
                 await update.message.reply_text(message, parse_mode='Markdown')
