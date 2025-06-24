@@ -1,6 +1,6 @@
 """
 High-Performance SQLite Manager - Optimized for 10,000+ users
-Extended with channel management functionality and export/import methods
+Extended with channel management functionality, export/import methods, and LANGUAGE SUPPORT
 """
 
 import aiosqlite
@@ -52,17 +52,25 @@ class SQLiteManager:
         await conn.execute("PRAGMA wal_autocheckpoint=1000")
         
     async def _create_schema(self, conn):
-        """Create optimized database schema"""
+        """Create optimized database schema with language support"""
         
-        # Users table
+        # Users table with language support
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY,
                 created_at TEXT DEFAULT (datetime('now')),
                 last_active TEXT DEFAULT (datetime('now')),
-                total_forwards INTEGER DEFAULT 0
+                total_forwards INTEGER DEFAULT 0,
+                language TEXT DEFAULT 'en'
             )
         """)
+        
+        # Add language column to existing users table (migration)
+        try:
+            await conn.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en'")
+        except Exception:
+            # Column already exists, ignore error
+            pass
         
         # User keywords
         await conn.execute("""
@@ -123,7 +131,8 @@ class SQLiteManager:
             "CREATE INDEX IF NOT EXISTS idx_users_last_active ON users(last_active)",
             "CREATE INDEX IF NOT EXISTS idx_message_forwards_forwarded_at ON message_forwards(forwarded_at)",
             "CREATE INDEX IF NOT EXISTS idx_monitored_channels_type ON monitored_channels(type)",
-            "CREATE INDEX IF NOT EXISTS idx_monitored_channels_status ON monitored_channels(status)"
+            "CREATE INDEX IF NOT EXISTS idx_monitored_channels_status ON monitored_channels(status)",
+            "CREATE INDEX IF NOT EXISTS idx_users_language ON users(language)"
         ]
         
         for index in indexes:
@@ -142,6 +151,48 @@ class SQLiteManager:
             conn = await self._available_connections.get()
             await conn.close()
         logger.info("SQLite connections closed")
+    
+    # Language Support Methods
+    async def get_user_language(self, user_id: int) -> str:
+        """Get user's preferred language"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT language FROM users WHERE id = ?", (user_id,)
+            ) as cursor:
+                row = await cursor.fetchone()
+                if row:
+                    return row[0] or 'en'
+                else:
+                    await self.ensure_user_exists(user_id)
+                    return 'en'
+
+    async def set_user_language(self, user_id: int, language: str):
+        """Set user's preferred language"""
+        await self.ensure_user_exists(user_id)
+        async with self._get_connection() as conn:
+            await conn.execute(
+                "UPDATE users SET language = ?, last_active = datetime('now') WHERE id = ?",
+                (language, user_id)
+            )
+            await conn.commit()
+
+    async def get_users_by_language(self, language: str) -> List[int]:
+        """Get list of user IDs who use specific language"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT id FROM users WHERE language = ?", (language,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return [row[0] for row in rows]
+
+    async def get_language_statistics(self) -> Dict[str, int]:
+        """Get statistics about language usage"""
+        async with self._get_connection() as conn:
+            async with conn.execute(
+                "SELECT language, COUNT(*) as count FROM users GROUP BY language"
+            ) as cursor:
+                rows = await cursor.fetchall()
+                return {row[0]: row[1] for row in rows}
     
     # Channel Management Methods
     async def init_channels_table(self):
@@ -209,14 +260,14 @@ class SQLiteManager:
                 rows = await cursor.fetchall()
                 return [{'identifier': row[0], 'type': row[1]} for row in rows]
     
-    # Existing user management methods
-    async def ensure_user_exists(self, user_id: int):
-        """Ensure user exists in database"""
+    # User management methods (updated with language support)
+    async def ensure_user_exists(self, user_id: int, language: str = 'en'):
+        """Ensure user exists in database with language preference"""
         async with self._get_connection() as conn:
             await conn.execute("""
-                INSERT OR IGNORE INTO users (id, last_active) 
-                VALUES (?, datetime('now'))
-            """, (user_id,))
+                INSERT OR IGNORE INTO users (id, last_active, language) 
+                VALUES (?, datetime('now'), ?)
+            """, (user_id, language))
             await conn.execute("""
                 UPDATE users SET last_active = datetime('now') 
                 WHERE id = ?
@@ -414,6 +465,7 @@ class SQLiteManager:
                     u.created_at,
                     u.last_active,
                     u.total_forwards,
+                    u.language,
                     GROUP_CONCAT(DISTINCT uk.keyword) as keywords,
                     GROUP_CONCAT(DISTINCT uik.keyword) as ignore_keywords
                 FROM users u
@@ -431,8 +483,9 @@ class SQLiteManager:
                         'created_at': row[1],
                         'last_active': row[2], 
                         'total_forwards': row[3] or 0,
-                        'keywords': row[4].split(',') if row[4] else [],
-                        'ignore_keywords': row[5].split(',') if row[5] else []
+                        'language': row[4] or 'en',
+                        'keywords': row[5].split(',') if row[5] else [],
+                        'ignore_keywords': row[6].split(',') if row[6] else []
                     }
                     users_data.append(user_data)
                 
@@ -483,13 +536,14 @@ class SQLiteManager:
                     
                     # Insert user
                     await conn.execute("""
-                        INSERT INTO users (id, created_at, last_active, total_forwards)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO users (id, created_at, last_active, total_forwards, language)
+                        VALUES (?, ?, ?, ?, ?)
                     """, (
                         user_id,
                         user.get('created_at', datetime.now().isoformat()),
                         user.get('last_active', datetime.now().isoformat()),
-                        user.get('total_forwards', 0)
+                        user.get('total_forwards', 0),
+                        user.get('language', 'en')
                     ))
                     
                     # Insert keywords

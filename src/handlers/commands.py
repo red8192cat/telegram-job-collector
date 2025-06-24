@@ -1,5 +1,5 @@
 """
-Command Handlers - Updated with manage_keywords flow
+Command Handlers - Enhanced with simple channel management
 All user-facing messages are now translated based on user's language preference
 """
 
@@ -68,7 +68,7 @@ class CommandHandlers:
             self.handle_bot_mention_message
         ), group=20)
         
-        logger.info("Enhanced command handlers with manage_keywords flow registered")
+        logger.info("Enhanced command handlers with channel management registered")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with language selection for new users"""
@@ -254,7 +254,7 @@ class CommandHandlers:
         else:
             await update.message.reply_text(get_text("ignore_cleared_none", language))
     
-    # Keep all admin methods unchanged (in English)
+    # Admin commands and authentication handlers (keep in English)
     async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle authentication messages - ADMIN ONLY - Keep in English"""
         if not is_private_chat(update) or not update.message:
@@ -317,7 +317,7 @@ class CommandHandlers:
                     context.args = []
                     await self.set_ignore_keywords_command(update, context)
     
-    # ALL ADMIN COMMANDS STAY IN ENGLISH (unchanged from original)
+    # Admin commands - ALL STAY IN ENGLISH
     async def auth_status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /auth_status command - ADMIN ONLY - Keep in English"""
         if not is_private_chat(update) or not update.message:
@@ -378,7 +378,7 @@ class CommandHandlers:
             await update.message.reply_text(f"❌ Error restarting authentication: {str(e)}")
     
     async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin command - ADMIN ONLY - Keep in English"""
+        """Handle /admin command - ENHANCED with channel management"""
         if not is_private_chat(update) or not update.message:
             return
         
@@ -388,58 +388,206 @@ class CommandHandlers:
             await update.message.reply_text(get_text("unknown_command", language))
             return
         
-        # Keep all admin command logic in English (unchanged)
         if not context.args:
             await update.message.reply_text(
-                "📋 Admin Commands\n\n"
-                "System:\n"
-                "• /admin health - System health check\n"
-                "• /admin stats - Database statistics\n"
-                "• /admin errors - Show recent errors\n\n"
-                "Channel Management:\n"
-                "• /admin channels - List all channels\n"
-                "• /admin add_user_channel @channel - Add user monitor channel\n"
-                "• /admin remove_user_channel @channel - Remove user channel\n"
-                "• /admin export_config - Update config.json\n\n"
-                "Data Management:\n"
-                "• /admin export - Export all data to JSON files\n"
-                "• /admin import - Import from JSON files\n"
-                "• /admin backup_manual - Create manual backup\n"
-                "• /admin list_backups - List all backups"
+                "📋 **Enhanced Admin Commands**\n\n"
+                "**System:**\n"
+                "• `/admin health` - System health check\n"
+                "• `/admin stats` - Database statistics\n"
+                "• `/admin errors` - Show recent errors\n\n"
+                "**Enhanced Channel Management:**\n"
+                "• `/admin channels` - List all channels with usernames\n"
+                "• `/admin add_bot_channel <channel>` - Add bot channel\n"
+                "• `/admin add_user_channel <channel>` - Add user channel\n"
+                "• `/admin remove_channel <chat_id>` - Remove channel\n"
+                "• `/admin update_username <chat_id> <username>` - Update username\n\n"
+                "**Data Management:**\n"
+                "• `/admin export` - Export enhanced config\n"
+                "• `/admin import` - Import from config files\n"
+                "• `/admin backup_manual` - Create manual backup\n"
+                "• `/admin list_backups` - List all backups\n\n"
+                "**Supported Channel Formats:**\n"
+                "• `@channelname`\n"
+                "• `t.me/channelname`\n"
+                "• `https://t.me/channelname`\n"
+                "• `-1001234567890` (chat ID)",
+                parse_mode='Markdown'
             )
             return
         
-        # Handle all admin subcommands (keep existing logic unchanged)
         subcommand = context.args[0].lower()
         
-        if subcommand == "health":
+        # Enhanced channel management commands
+        if subcommand == "channels":
+            await self.admin_list_channels_enhanced(update, context)
+        elif subcommand == "add_bot_channel":
+            await self.admin_add_bot_channel_enhanced(update, context)
+        elif subcommand == "add_user_channel":
+            await self.admin_add_user_channel_enhanced(update, context)
+        elif subcommand == "remove_channel":
+            await self.admin_remove_channel_enhanced(update, context)
+        elif subcommand == "update_username":
+            await self.admin_update_channel_username(update, context)
+        elif subcommand == "export":
+            await self.admin_export_enhanced_command(update, context)
+        elif subcommand == "import":
+            await self.admin_import_command(update, context)
+        elif subcommand == "health":
             await self.admin_health_command(update, context)
         elif subcommand == "stats":
             await self.admin_stats_command(update, context)
         elif subcommand == "errors":
             await self.admin_errors_command(update, context)
-        elif subcommand == "channels":
-            await self.admin_channels_command(update, context)
-        elif subcommand == "add_user_channel":
-            await self.admin_add_user_channel_command(update, context)
-        elif subcommand == "remove_user_channel":
-            await self.admin_remove_user_channel_command(update, context)
-        elif subcommand == "export_config":
-            await self.admin_export_config_command(update, context)
-        elif subcommand == "export":
-            await self.admin_export_command(update, context)
-        elif subcommand == "import":
-            await self.admin_import_command(update, context)
         elif subcommand == "backup_manual":
             await self.admin_backup_manual_command(update, context)
         elif subcommand == "list_backups":
             await self.admin_list_backups_command(update, context)
         else:
             await update.message.reply_text(f"❓ Unknown admin command: {subcommand}")
+    
+    # Enhanced channel management admin commands
+    async def admin_add_bot_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin add_bot_channel command with input parsing"""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/admin add_bot_channel <channel>`\n\n"
+                "Supported formats:\n"
+                "• `@channelname`\n"
+                "• `t.me/channelname`\n"
+                "• `https://t.me/channelname`\n"
+                "• `-1001234567890` (chat ID)"
+            )
+            return
+        
+        channel_input = context.args[1]
+        
+        try:
+            await update.message.reply_text(f"🔍 Adding bot channel: `{channel_input}`...")
+            
+            # Try to get chat info using bot API
+            chat_id = None
+            username = None
+            display_name = channel['display_name']
+            channel_type = channel['type']
+            
+            # Remove from database
+            success = await self.data_manager.remove_channel_simple(chat_id, channel_type)
+            
+            if success:
+                # Export config
+                await self._export_enhanced_config()
+                
+                message = f"✅ **Channel removed successfully!**\n\n"
+                message += f"📋 **Name:** {display_name}\n"
+                message += f"🆔 **Chat ID:** `{chat_id}`\n"
+                message += f"📊 **Type:** {channel_type}\n"
+                
+                if channel_type == 'user':
+                    message += f"\n💡 **Note:** User monitor will auto-leave this channel"
+                
+                await update.message.reply_text(message, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Failed to remove channel from database")
+                
+        except Exception as e:
+            logger.error(f"Error removing channel: {e}")
+            await update.message.reply_text(f"❌ Error removing channel: {str(e)}")
 
-    # Keep all admin helper methods unchanged (in English)...
+    async def admin_update_channel_username(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Update a channel's username when it changes"""
+        if len(context.args) < 3:
+            await update.message.reply_text(
+                "❌ Usage: `/admin update_username <chat_id> <new_username>`\n\n"
+                "Example: `/admin update_username -1001234567890 @newtechjobs`"
+            )
+            return
+        
+        try:
+            chat_id = int(context.args[1])
+            new_username = context.args[2]
+            
+            if not new_username.startswith('@'):
+                new_username = f"@{new_username}"
+            
+            # Find channel
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            channel = channel_info.get(chat_id)
+            
+            if not channel:
+                await update.message.reply_text(f"❌ Channel with chat_id `{chat_id}` not found")
+                return
+            
+            old_username = channel['username'] or 'None'
+            
+            # Update username
+            success = await self.data_manager.update_channel_username(chat_id, new_username)
+            
+            if success:
+                # Export config
+                await self._export_enhanced_config()
+                
+                await update.message.reply_text(
+                    f"✅ **Channel username updated!**\n\n"
+                    f"🆔 **Chat ID:** `{chat_id}`\n"
+                    f"📋 **Old username:** {old_username}\n"
+                    f"🔗 **New username:** {new_username}",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Failed to update username")
+                
+        except ValueError:
+            await update.message.reply_text("❌ Invalid chat_id. Must be a number.")
+        except Exception as e:
+            logger.error(f"Error updating username: {e}")
+            await update.message.reply_text(f"❌ Error updating username: {str(e)}")
+
+    async def _export_enhanced_config(self):
+        """Export current database state to config files"""
+        try:
+            bot_channels, user_channels = await self.data_manager.export_all_channels_for_config()
+            
+            # Import ConfigManager if available
+            try:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                config_manager.export_channels_config(bot_channels, user_channels)
+                logger.info("Exported enhanced config after channel update")
+            except Exception as e:
+                logger.error(f"Failed to export enhanced config: {e}")
+        except Exception as e:
+            logger.error(f"Failed to export config: {e}")
+
+    async def admin_export_enhanced_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Export enhanced configuration"""
+        try:
+            await self._export_enhanced_config()
+            
+            # Also export users
+            users_data = await self.data_manager.export_all_users_for_config()
+            try:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                config_manager.export_users_config(users_data)
+            except Exception as e:
+                logger.error(f"Failed to export users config: {e}")
+            
+            await update.message.reply_text(
+                "✅ **Enhanced Configuration Exported**\n\n"
+                "📁 Updated files:\n"
+                "• `data/config/channels.json` (with chat_id + username)\n"
+                "• `data/config/users.json`\n\n"
+                "💾 Automatic backups created",
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced export: {e}")
+            await update.message.reply_text(f"❌ Export failed: {str(e)}")
+
+    # Keep existing admin helper methods
     async def admin_health_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin health - keep unchanged"""
+        """Admin health check"""
         try:
             health_status = []
             
@@ -461,70 +609,450 @@ class CommandHandlers:
             else:
                 health_status.append("ℹ️ User Monitor: Not configured")
             
-            message = "🏥 System Health Check\n\n"
+            # Check channels
+            try:
+                channel_info = await self.data_manager.get_all_channels_with_usernames()
+                bot_count = sum(1 for info in channel_info.values() if info['type'] == 'bot')
+                user_count = sum(1 for info in channel_info.values() if info['type'] == 'user')
+                health_status.append(f"✅ Channels: {bot_count} bot, {user_count} user")
+            except Exception as e:
+                health_status.append(f"❌ Channels: Error - {str(e)[:50]}")
+            
+            message = "🏥 **System Health Check**\n\n"
             message += "\n".join(health_status)
             
-            await update.message.reply_text(message)
+            await update.message.reply_text(message, parse_mode='Markdown')
         except Exception as e:
             await update.message.reply_text(f"❌ Health check failed: {str(e)}")
     
     async def admin_stats_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Admin stats - keep unchanged"""
+        """Enhanced admin stats with channel info"""
         try:
             all_users = await self.data_manager.get_all_users_with_keywords()
             total_users = len(all_users)
             total_keywords = sum(len(keywords) for keywords in all_users.values())
             
-            # Get channel counts
-            bot_channels = await self.data_manager.get_bot_monitored_channels_db()
-            user_channels = await self.data_manager.get_user_monitored_channels_db()
+            # Get channel counts with enhanced info
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            bot_channels = [info for info in channel_info.values() if info['type'] == 'bot']
+            user_channels = [info for info in channel_info.values() if info['type'] == 'user']
+            
+            # Language stats
+            try:
+                language_stats = await self.data_manager.get_language_statistics()
+            except:
+                language_stats = {}
             
             message = (
-                f"📊 Database Statistics\n\n"
-                f"👥 Total Users: {total_users}\n"
-                f"🎯 Total Keywords: {total_keywords}\n"
-                f"📈 Avg Keywords/User: {total_keywords / total_users if total_users > 0 else 0:.1f}\n\n"
-                f"📺 Bot Channels: {len(bot_channels)}\n"
-                f"👤 User Channels: {len(user_channels)}"
+                f"📊 **Enhanced Database Statistics**\n\n"
+                f"👥 **Users:**\n"
+                f"• Total users: {total_users}\n"
+                f"• Total keywords: {total_keywords}\n"
+                f"• Avg keywords/user: {total_keywords / total_users if total_users > 0 else 0:.1f}\n"
             )
             
-            await update.message.reply_text(message)
+            if language_stats:
+                message += f"• Languages: "
+                lang_parts = [f"{lang} ({count})" for lang, count in language_stats.items()]
+                message += ", ".join(lang_parts) + "\n"
+            
+            message += (
+                f"\n📺 **Channels:**\n"
+                f"• Bot channels: {len(bot_channels)}\n"
+                f"• User channels: {len(user_channels)}\n"
+            )
+            
+            # Show usernames for channels
+            bot_with_usernames = sum(1 for ch in bot_channels if ch['username'])
+            user_with_usernames = sum(1 for ch in user_channels if ch['username'])
+            
+            message += (
+                f"• Bot channels with usernames: {bot_with_usernames}/{len(bot_channels)}\n"
+                f"• User channels with usernames: {user_with_usernames}/{len(user_channels)}"
+            )
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
         except Exception as e:
             await update.message.reply_text(f"❌ Error getting statistics: {str(e)}")
     
-    # Keep all other admin methods unchanged...
     async def admin_errors_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin errors command"""
-        pass
-    
-    async def admin_channels_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin channels command"""
-        pass
-    
-    async def admin_add_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin add_user_channel command"""
-        pass
-    
-    async def admin_remove_user_channel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin remove_user_channel command"""
-        pass
-    
-    async def admin_export_config_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin export_config command"""
-        pass
-    
-    async def admin_export_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin export command"""
-        pass
+        """Show recent errors"""
+        try:
+            # Try to get error collector if available
+            try:
+                from utils.error_monitor import get_error_collector
+                error_collector = get_error_collector()
+                
+                if error_collector:
+                    recent_errors = error_collector.get_recent_errors(hours=24)
+                    stats = error_collector.get_error_stats()
+                    
+                    if not recent_errors:
+                        await update.message.reply_text("✅ No errors in the last 24 hours!")
+                        return
+                    
+                    message = f"⚠️ **Recent Errors (24h)**\n\n"
+                    message += f"📊 **Summary:** {stats['total']} total"
+                    if stats['critical'] > 0:
+                        message += f", {stats['critical']} critical"
+                    message += "\n\n"
+                    
+                    # Show last 5 errors
+                    for i, error in enumerate(recent_errors[:5], 1):
+                        timestamp = error['timestamp'].strftime("%H:%M:%S")
+                        level_icon = "🚨" if error['level'] == 'CRITICAL' else "⚠️"
+                        
+                        message += f"{i}. {level_icon} {timestamp} - {error['module']}\n"
+                        message += f"   {error['message'][:100]}\n"
+                    
+                    if len(recent_errors) > 5:
+                        message += f"\n... and {len(recent_errors) - 5} more errors"
+                    
+                    await update.message.reply_text(message, parse_mode='Markdown')
+                else:
+                    await update.message.reply_text("ℹ️ Error monitoring not available")
+                    
+            except ImportError:
+                await update.message.reply_text("ℹ️ Error monitoring module not found")
+                
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error retrieving errors: {str(e)}")
     
     async def admin_import_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin import command"""
-        pass
+        """Import from config files"""
+        try:
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
+            
+            # Load and import channels
+            config_manager.load_channels_config()
+            bot_channels = config_manager.get_channels_to_monitor()
+            user_channels = config_manager.get_user_monitored_channels()
+            
+            # Convert to enhanced format if needed
+            bot_channel_dicts = []
+            user_channel_dicts = []
+            
+            for channel in bot_channels:
+                if isinstance(channel, dict):
+                    bot_channel_dicts.append(channel)
+                else:
+                    # Legacy format
+                    bot_channel_dicts.append({'chat_id': int(channel) if channel.lstrip('-').isdigit() else hash(channel) % 1000000000, 'username': channel if channel.startswith('@') else None})
+            
+            for channel in user_channels:
+                if isinstance(channel, dict):
+                    user_channel_dicts.append(channel)
+                else:
+                    # Legacy format
+                    user_channel_dicts.append({'chat_id': int(channel) if channel.lstrip('-').isdigit() else hash(channel) % 1000000000, 'username': channel if channel.startswith('@') else None})
+            
+            await self.data_manager.import_channels_from_config(bot_channel_dicts, user_channel_dicts)
+            
+            # Load and import users
+            users_data = config_manager.load_users_config()
+            if users_data:
+                await self.data_manager.import_users_from_config(users_data)
+            
+            await update.message.reply_text(
+                f"✅ **Enhanced Configuration Imported**\n\n"
+                f"📊 Imported:\n"
+                f"• {len(bot_channel_dicts)} bot channels\n"
+                f"• {len(user_channel_dicts)} user channels\n"
+                f"• {len(users_data)} users",
+                parse_mode='Markdown'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced import: {e}")
+            await update.message.reply_text(f"❌ Import failed: {str(e)}")
     
     async def admin_backup_manual_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin backup_manual command"""
-        pass
+        """Create manual backup"""
+        try:
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
+            
+            timestamp = config_manager.create_manual_backup()
+            
+            if timestamp:
+                await update.message.reply_text(
+                    f"✅ **Manual Backup Created**\n\n"
+                    f"📅 Timestamp: {timestamp}\n"
+                    f"📁 Location: `data/config/backups/`\n\n"
+                    f"💡 Manual backups are never auto-deleted",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Failed to create manual backup")
+                
+        except Exception as e:
+            logger.error(f"Error creating manual backup: {e}")
+            await update.message.reply_text(f"❌ Backup failed: {str(e)}")
     
     async def admin_list_backups_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /admin list_backups command"""
-        pass
+        """List all backups"""
+        try:
+            from utils.config import ConfigManager
+            config_manager = ConfigManager()
+            
+            backups = config_manager.list_backups()
+            
+            if not backups:
+                await update.message.reply_text("📁 No backups found")
+                return
+            
+            message = f"📁 **Available Backups ({len(backups)})**\n\n"
+            
+            manual_backups = [b for b in backups if b['type'] == 'manual']
+            auto_backups = [b for b in backups if b['type'] == 'auto']
+            
+            if manual_backups:
+                message += f"📌 **Manual Backups ({len(manual_backups)}):**\n"
+                for backup in manual_backups[:5]:  # Show last 5
+                    message += f"• {backup['filename']} - {backup['created']}\n"
+                message += "\n"
+            
+            if auto_backups:
+                message += f"🔄 **Auto Backups ({len(auto_backups)}):**\n"
+                for backup in auto_backups[:5]:  # Show last 5
+                    message += f"• {backup['filename']} - {backup['created']}\n"
+            
+            if len(backups) > 10:
+                message += f"\n... and {len(backups) - 10} more backups"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error listing backups: {e}")
+            await update.message.reply_text(f"❌ Error listing backups: {str(e)}")name = None
+            
+            # Parse input format
+            if channel_input.startswith('@'):
+                chat_id = channel_input
+                display_name = channel_input
+            elif 't.me/' in channel_input:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                parsed_username = config_manager.parse_channel_input(channel_input)
+                if parsed_username:
+                    chat_id = parsed_username
+                    display_name = parsed_username
+                else:
+                    await update.message.reply_text("❌ Cannot add private channels to bot monitoring")
+                    return
+            elif channel_input.lstrip('-').isdigit():
+                chat_id = int(channel_input)
+                display_name = f"Channel {chat_id}"
+            else:
+                await update.message.reply_text("❌ Invalid channel format")
+                return
+            
+            # Get chat info from Telegram
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                actual_chat_id = chat.id
+                username = f"@{chat.username}" if chat.username else None
+                display_name = username or chat.title or f"Channel {actual_chat_id}"
+                
+                # Check if bot is admin
+                try:
+                    bot_member = await context.bot.get_chat_member(actual_chat_id, context.bot.id)
+                    is_admin = bot_member.status in ['administrator', 'creator']
+                    
+                    if not is_admin:
+                        await update.message.reply_text(
+                            f"⚠️ **Warning:** Bot is not admin in {display_name}\n"
+                            f"The bot needs admin permissions to monitor messages."
+                        )
+                except Exception:
+                    await update.message.reply_text(
+                        f"⚠️ **Warning:** Cannot check admin status in {display_name}"
+                    )
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Cannot access channel: {str(e)}")
+                return
+            
+            # Add to database
+            success = await self.data_manager.add_channel_simple(actual_chat_id, username, 'bot')
+            
+            if success:
+                # Export to config
+                await self._export_enhanced_config()
+                
+                await update.message.reply_text(
+                    f"✅ **Bot channel added successfully!**\n\n"
+                    f"📋 **Name:** {display_name}\n"
+                    f"🆔 **Chat ID:** `{actual_chat_id}`\n"
+                    f"🔗 **Username:** {username or 'None'}",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Channel already exists or failed to add")
+            
+        except Exception as e:
+            logger.error(f"Error adding bot channel: {e}")
+            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
+
+    async def admin_add_user_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin add_user_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/admin add_user_channel <channel>`\n\n"
+                "Same formats as bot channels, but for user account monitoring"
+            )
+            return
+        
+        channel_input = context.args[1]
+        
+        try:
+            await update.message.reply_text(f"🔍 Adding user channel: `{channel_input}`...")
+            
+            # For user channels, we might not have bot access, so handle more gracefully
+            chat_id = None
+            username = None
+            display_name = channel_input
+            
+            # Parse and set defaults
+            if channel_input.startswith('@'):
+                username = channel_input
+                display_name = channel_input
+                # Use hash for temporary chat_id (will be updated when user monitor validates)
+                chat_id = hash(channel_input) % 1000000000
+            elif 't.me/' in channel_input:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                parsed_username = config_manager.parse_channel_input(channel_input)
+                username = parsed_username
+                display_name = parsed_username or "Private Channel"
+                chat_id = hash(channel_input) % 1000000000
+            elif channel_input.lstrip('-').isdigit():
+                chat_id = int(channel_input)
+                display_name = f"Channel {chat_id}"
+            else:
+                await update.message.reply_text("❌ Invalid channel format")
+                return
+            
+            # Try to get real chat info (might fail for private channels)
+            try:
+                chat = await context.bot.get_chat(chat_id if isinstance(chat_id, int) and chat_id > 1000000000 else username)
+                chat_id = chat.id
+                username = f"@{chat.username}" if chat.username else None
+                display_name = username or chat.title or f"Channel {chat_id}"
+            except Exception:
+                # Bot can't access - that's OK for user channels
+                logger.info(f"Bot cannot access user channel {channel_input} - will be validated by user monitor")
+            
+            # Add to database
+            success = await self.data_manager.add_channel_simple(chat_id, username, 'user')
+            
+            if success:
+                # Export to config
+                await self._export_enhanced_config()
+                
+                message = f"✅ **User channel added successfully!**\n\n"
+                message += f"📋 **Name:** {display_name}\n"
+                message += f"🆔 **Chat ID:** `{chat_id}`\n"
+                message += f"🔗 **Username:** {username or 'None'}\n\n"
+                message += f"💡 **Note:** User monitor will validate and auto-join this channel"
+                
+                await update.message.reply_text(message, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Channel already exists or failed to add")
+            
+        except Exception as e:
+            logger.error(f"Error adding user channel: {e}")
+            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
+
+    async def admin_list_channels_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin channels command with better display"""
+        try:
+            # Get all channels with display info
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            
+            if not channel_info:
+                await update.message.reply_text("📺 No channels configured")
+                return
+            
+            bot_channels = []
+            user_channels = []
+            
+            for chat_id, info in channel_info.items():
+                if info['type'] == 'bot':
+                    bot_channels.append((chat_id, info))
+                else:
+                    user_channels.append((chat_id, info))
+            
+            message = "📺 **Enhanced Channel Status**\n\n"
+            
+            # Bot channels section
+            message += f"🤖 **Bot Channels ({len(bot_channels)}):**\n"
+            if bot_channels:
+                for i, (chat_id, info) in enumerate(bot_channels, 1):
+                    display_name = info['display_name']
+                    username = info['username']
+                    
+                    message += f"{i}. **{display_name}**\n"
+                    message += f"   └ ID: `{chat_id}`"
+                    if username:
+                        message += f" | {username}"
+                    message += "\n"
+            else:
+                message += "   No bot channels configured\n"
+            
+            message += "\n"
+            
+            # User channels section  
+            message += f"👤 **User Channels ({len(user_channels)}):**\n"
+            if user_channels:
+                for i, (chat_id, info) in enumerate(user_channels, 1):
+                    display_name = info['display_name']
+                    username = info['username']
+                    
+                    message += f"{i}. **{display_name}**\n"
+                    message += f"   └ ID: `{chat_id}`"
+                    if username:
+                        message += f" | {username}"
+                    message += "\n"
+            else:
+                message += "   No user channels configured\n"
+            
+            # Commands help
+            message += "\n💡 **Commands:**\n"
+            message += "• `/admin add_bot_channel <channel>` - Add bot channel\n"
+            message += "• `/admin add_user_channel <channel>` - Add user channel\n"
+            message += "• `/admin remove_channel <chat_id>` - Remove channel\n"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error listing channels: {e}")
+            await update.message.reply_text(f"❌ Error retrieving channels: {str(e)}")
+
+    async def admin_remove_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin remove_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/admin remove_channel <chat_id>`\n\n"
+                "Use `/admin channels` to see chat IDs"
+            )
+            return
+        
+        try:
+            chat_id = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid chat_id. Must be a number.")
+            return
+        
+        try:
+            # Find channel info
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            channel = channel_info.get(chat_id)
+            
+            if not channel:
+                await update.message.reply_text(f"❌ Channel with chat_id `{chat_id}` not found")
+                return
+            
+            display_
