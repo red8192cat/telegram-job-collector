@@ -467,6 +467,231 @@ class CommandHandlers:
             # Try to get chat info using bot API
             chat_id = None
             username = None
+            display_name = None
+            
+            # Parse input format
+            if channel_input.startswith('@'):
+                chat_id = channel_input
+                display_name = channel_input
+            elif 't.me/' in channel_input:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                parsed_username = config_manager.parse_channel_input(channel_input)
+                if parsed_username:
+                    chat_id = parsed_username
+                    display_name = parsed_username
+                else:
+                    await update.message.reply_text("❌ Cannot add private channels to bot monitoring")
+                    return
+            elif channel_input.lstrip('-').isdigit():
+                chat_id = int(channel_input)
+                display_name = f"Channel {chat_id}"
+            else:
+                await update.message.reply_text("❌ Invalid channel format")
+                return
+            
+            # Get chat info from Telegram
+            try:
+                chat = await context.bot.get_chat(chat_id)
+                actual_chat_id = chat.id
+                username = f"@{chat.username}" if chat.username else None
+                display_name = username or chat.title or f"Channel {actual_chat_id}"
+                
+                # Check if bot is admin
+                try:
+                    bot_member = await context.bot.get_chat_member(actual_chat_id, context.bot.id)
+                    is_admin = bot_member.status in ['administrator', 'creator']
+                    
+                    if not is_admin:
+                        await update.message.reply_text(
+                            f"⚠️ **Warning:** Bot is not admin in {display_name}\n"
+                            f"The bot needs admin permissions to monitor messages."
+                        )
+                except Exception:
+                    await update.message.reply_text(
+                        f"⚠️ **Warning:** Cannot check admin status in {display_name}"
+                    )
+                
+            except Exception as e:
+                await update.message.reply_text(f"❌ Cannot access channel: {str(e)}")
+                return
+            
+            # Add to database
+            success = await self.data_manager.add_channel_simple(actual_chat_id, username, 'bot')
+            
+            if success:
+                # Export to config
+                await self._export_enhanced_config()
+                
+                await update.message.reply_text(
+                    f"✅ **Bot channel added successfully!**\n\n"
+                    f"📋 **Name:** {display_name}\n"
+                    f"🆔 **Chat ID:** `{actual_chat_id}`\n"
+                    f"🔗 **Username:** {username or 'None'}",
+                    parse_mode='Markdown'
+                )
+            else:
+                await update.message.reply_text("❌ Channel already exists or failed to add")
+            
+        except Exception as e:
+            logger.error(f"Error adding bot channel: {e}")
+            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
+
+    async def admin_add_user_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin add_user_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/admin add_user_channel <channel>`\n\n"
+                "Same formats as bot channels, but for user account monitoring"
+            )
+            return
+        
+        channel_input = context.args[1]
+        
+        try:
+            await update.message.reply_text(f"🔍 Adding user channel: `{channel_input}`...")
+            
+            # For user channels, we might not have bot access, so handle more gracefully
+            chat_id = None
+            username = None
+            display_name = channel_input
+            
+            # Parse and set defaults
+            if channel_input.startswith('@'):
+                username = channel_input
+                display_name = channel_input
+                # Use hash for temporary chat_id (will be updated when user monitor validates)
+                chat_id = hash(channel_input) % 1000000000
+            elif 't.me/' in channel_input:
+                from utils.config import ConfigManager
+                config_manager = ConfigManager()
+                parsed_username = config_manager.parse_channel_input(channel_input)
+                username = parsed_username
+                display_name = parsed_username or "Private Channel"
+                chat_id = hash(channel_input) % 1000000000
+            elif channel_input.lstrip('-').isdigit():
+                chat_id = int(channel_input)
+                display_name = f"Channel {chat_id}"
+            else:
+                await update.message.reply_text("❌ Invalid channel format")
+                return
+            
+            # Try to get real chat info (might fail for private channels)
+            try:
+                chat = await context.bot.get_chat(chat_id if isinstance(chat_id, int) and chat_id > 1000000000 else username)
+                chat_id = chat.id
+                username = f"@{chat.username}" if chat.username else None
+                display_name = username or chat.title or f"Channel {chat_id}"
+            except Exception:
+                # Bot can't access - that's OK for user channels
+                logger.info(f"Bot cannot access user channel {channel_input} - will be validated by user monitor")
+            
+            # Add to database
+            success = await self.data_manager.add_channel_simple(chat_id, username, 'user')
+            
+            if success:
+                # Export to config
+                await self._export_enhanced_config()
+                
+                message = f"✅ **User channel added successfully!**\n\n"
+                message += f"📋 **Name:** {display_name}\n"
+                message += f"🆔 **Chat ID:** `{chat_id}`\n"
+                message += f"🔗 **Username:** {username or 'None'}\n\n"
+                message += f"💡 **Note:** User monitor will validate and auto-join this channel"
+                
+                await update.message.reply_text(message, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Channel already exists or failed to add")
+            
+        except Exception as e:
+            logger.error(f"Error adding user channel: {e}")
+            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
+
+    async def admin_list_channels_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin channels command with better display"""
+        try:
+            # Get all channels with display info
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            
+            if not channel_info:
+                await update.message.reply_text("📺 No channels configured")
+                return
+            
+            bot_channels = []
+            user_channels = []
+            
+            for chat_id, info in channel_info.items():
+                if info['type'] == 'bot':
+                    bot_channels.append((chat_id, info))
+                else:
+                    user_channels.append((chat_id, info))
+            
+            message = "📺 **Enhanced Channel Status**\n\n"
+            
+            # Bot channels section
+            message += f"🤖 **Bot Channels ({len(bot_channels)}):**\n"
+            if bot_channels:
+                for i, (chat_id, info) in enumerate(bot_channels, 1):
+                    display_name = info['display_name']
+                    username = info['username']
+                    
+                    message += f"{i}. **{display_name}**\n"
+                    message += f"   └ ID: `{chat_id}`"
+                    if username:
+                        message += f" | {username}"
+                    message += "\n"
+            else:
+                message += "   No bot channels configured\n"
+            
+            message += "\n"
+            
+            # User channels section  
+            message += f"👤 **User Channels ({len(user_channels)}):**\n"
+            if user_channels:
+                for i, (chat_id, info) in enumerate(user_channels, 1):
+                    display_name = info['display_name']
+                    username = info['username']
+                    
+                    message += f"{i}. **{display_name}**\n"
+                    message += f"   └ ID: `{chat_id}`"
+                    if username:
+                        message += f" | {username}"
+                    message += "\n"
+            else:
+                message += "   No user channels configured\n"
+            
+            # Commands help
+            message += "\n💡 **Commands:**\n"
+            message += "• `/admin add_bot_channel <channel>` - Add bot channel\n"
+            message += "• `/admin add_user_channel <channel>` - Add user channel\n"
+            message += "• `/admin remove_channel <chat_id>` - Remove channel\n"
+            
+            await update.message.reply_text(message, parse_mode='Markdown')
+            
+        except Exception as e:
+            logger.error(f"Error listing channels: {e}")
+            await update.message.reply_text(f"❌ Error retrieving channels: {str(e)}")
+
+    async def admin_remove_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enhanced /admin remove_channel command"""
+        if len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/admin remove_channel <chat_id>`\n\n"
+                "Use `/admin channels` to see chat IDs"
+            )
+            return
+        
+        try:
+            chat_id = int(context.args[1])
+        except ValueError:
+            await update.message.reply_text("❌ Invalid chat_id. Must be a number.")
+            return
+        
+        try:
+            # Find channel info
+            channel_info = await self.data_manager.get_all_channels_with_usernames()
+            channel = channel_info.get(chat_id)
+            
             display_name = channel['display_name']
             channel_type = channel['type']
             
@@ -826,233 +1051,5 @@ class CommandHandlers:
             
         except Exception as e:
             logger.error(f"Error listing backups: {e}")
-            await update.message.reply_text(f"❌ Error listing backups: {str(e)}")name = None
+            await update.message.reply_text(f"❌ Error listing backups: {str(e)}")
             
-            # Parse input format
-            if channel_input.startswith('@'):
-                chat_id = channel_input
-                display_name = channel_input
-            elif 't.me/' in channel_input:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
-                parsed_username = config_manager.parse_channel_input(channel_input)
-                if parsed_username:
-                    chat_id = parsed_username
-                    display_name = parsed_username
-                else:
-                    await update.message.reply_text("❌ Cannot add private channels to bot monitoring")
-                    return
-            elif channel_input.lstrip('-').isdigit():
-                chat_id = int(channel_input)
-                display_name = f"Channel {chat_id}"
-            else:
-                await update.message.reply_text("❌ Invalid channel format")
-                return
-            
-            # Get chat info from Telegram
-            try:
-                chat = await context.bot.get_chat(chat_id)
-                actual_chat_id = chat.id
-                username = f"@{chat.username}" if chat.username else None
-                display_name = username or chat.title or f"Channel {actual_chat_id}"
-                
-                # Check if bot is admin
-                try:
-                    bot_member = await context.bot.get_chat_member(actual_chat_id, context.bot.id)
-                    is_admin = bot_member.status in ['administrator', 'creator']
-                    
-                    if not is_admin:
-                        await update.message.reply_text(
-                            f"⚠️ **Warning:** Bot is not admin in {display_name}\n"
-                            f"The bot needs admin permissions to monitor messages."
-                        )
-                except Exception:
-                    await update.message.reply_text(
-                        f"⚠️ **Warning:** Cannot check admin status in {display_name}"
-                    )
-                
-            except Exception as e:
-                await update.message.reply_text(f"❌ Cannot access channel: {str(e)}")
-                return
-            
-            # Add to database
-            success = await self.data_manager.add_channel_simple(actual_chat_id, username, 'bot')
-            
-            if success:
-                # Export to config
-                await self._export_enhanced_config()
-                
-                await update.message.reply_text(
-                    f"✅ **Bot channel added successfully!**\n\n"
-                    f"📋 **Name:** {display_name}\n"
-                    f"🆔 **Chat ID:** `{actual_chat_id}`\n"
-                    f"🔗 **Username:** {username or 'None'}",
-                    parse_mode='Markdown'
-                )
-            else:
-                await update.message.reply_text("❌ Channel already exists or failed to add")
-            
-        except Exception as e:
-            logger.error(f"Error adding bot channel: {e}")
-            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
-
-    async def admin_add_user_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced /admin add_user_channel command"""
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Usage: `/admin add_user_channel <channel>`\n\n"
-                "Same formats as bot channels, but for user account monitoring"
-            )
-            return
-        
-        channel_input = context.args[1]
-        
-        try:
-            await update.message.reply_text(f"🔍 Adding user channel: `{channel_input}`...")
-            
-            # For user channels, we might not have bot access, so handle more gracefully
-            chat_id = None
-            username = None
-            display_name = channel_input
-            
-            # Parse and set defaults
-            if channel_input.startswith('@'):
-                username = channel_input
-                display_name = channel_input
-                # Use hash for temporary chat_id (will be updated when user monitor validates)
-                chat_id = hash(channel_input) % 1000000000
-            elif 't.me/' in channel_input:
-                from utils.config import ConfigManager
-                config_manager = ConfigManager()
-                parsed_username = config_manager.parse_channel_input(channel_input)
-                username = parsed_username
-                display_name = parsed_username or "Private Channel"
-                chat_id = hash(channel_input) % 1000000000
-            elif channel_input.lstrip('-').isdigit():
-                chat_id = int(channel_input)
-                display_name = f"Channel {chat_id}"
-            else:
-                await update.message.reply_text("❌ Invalid channel format")
-                return
-            
-            # Try to get real chat info (might fail for private channels)
-            try:
-                chat = await context.bot.get_chat(chat_id if isinstance(chat_id, int) and chat_id > 1000000000 else username)
-                chat_id = chat.id
-                username = f"@{chat.username}" if chat.username else None
-                display_name = username or chat.title or f"Channel {chat_id}"
-            except Exception:
-                # Bot can't access - that's OK for user channels
-                logger.info(f"Bot cannot access user channel {channel_input} - will be validated by user monitor")
-            
-            # Add to database
-            success = await self.data_manager.add_channel_simple(chat_id, username, 'user')
-            
-            if success:
-                # Export to config
-                await self._export_enhanced_config()
-                
-                message = f"✅ **User channel added successfully!**\n\n"
-                message += f"📋 **Name:** {display_name}\n"
-                message += f"🆔 **Chat ID:** `{chat_id}`\n"
-                message += f"🔗 **Username:** {username or 'None'}\n\n"
-                message += f"💡 **Note:** User monitor will validate and auto-join this channel"
-                
-                await update.message.reply_text(message, parse_mode='Markdown')
-            else:
-                await update.message.reply_text("❌ Channel already exists or failed to add")
-            
-        except Exception as e:
-            logger.error(f"Error adding user channel: {e}")
-            await update.message.reply_text(f"❌ Error adding channel: {str(e)}")
-
-    async def admin_list_channels_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced /admin channels command with better display"""
-        try:
-            # Get all channels with display info
-            channel_info = await self.data_manager.get_all_channels_with_usernames()
-            
-            if not channel_info:
-                await update.message.reply_text("📺 No channels configured")
-                return
-            
-            bot_channels = []
-            user_channels = []
-            
-            for chat_id, info in channel_info.items():
-                if info['type'] == 'bot':
-                    bot_channels.append((chat_id, info))
-                else:
-                    user_channels.append((chat_id, info))
-            
-            message = "📺 **Enhanced Channel Status**\n\n"
-            
-            # Bot channels section
-            message += f"🤖 **Bot Channels ({len(bot_channels)}):**\n"
-            if bot_channels:
-                for i, (chat_id, info) in enumerate(bot_channels, 1):
-                    display_name = info['display_name']
-                    username = info['username']
-                    
-                    message += f"{i}. **{display_name}**\n"
-                    message += f"   └ ID: `{chat_id}`"
-                    if username:
-                        message += f" | {username}"
-                    message += "\n"
-            else:
-                message += "   No bot channels configured\n"
-            
-            message += "\n"
-            
-            # User channels section  
-            message += f"👤 **User Channels ({len(user_channels)}):**\n"
-            if user_channels:
-                for i, (chat_id, info) in enumerate(user_channels, 1):
-                    display_name = info['display_name']
-                    username = info['username']
-                    
-                    message += f"{i}. **{display_name}**\n"
-                    message += f"   └ ID: `{chat_id}`"
-                    if username:
-                        message += f" | {username}"
-                    message += "\n"
-            else:
-                message += "   No user channels configured\n"
-            
-            # Commands help
-            message += "\n💡 **Commands:**\n"
-            message += "• `/admin add_bot_channel <channel>` - Add bot channel\n"
-            message += "• `/admin add_user_channel <channel>` - Add user channel\n"
-            message += "• `/admin remove_channel <chat_id>` - Remove channel\n"
-            
-            await update.message.reply_text(message, parse_mode='Markdown')
-            
-        except Exception as e:
-            logger.error(f"Error listing channels: {e}")
-            await update.message.reply_text(f"❌ Error retrieving channels: {str(e)}")
-
-    async def admin_remove_channel_enhanced(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Enhanced /admin remove_channel command"""
-        if len(context.args) < 2:
-            await update.message.reply_text(
-                "❌ Usage: `/admin remove_channel <chat_id>`\n\n"
-                "Use `/admin channels` to see chat IDs"
-            )
-            return
-        
-        try:
-            chat_id = int(context.args[1])
-        except ValueError:
-            await update.message.reply_text("❌ Invalid chat_id. Must be a number.")
-            return
-        
-        try:
-            # Find channel info
-            channel_info = await self.data_manager.get_all_channels_with_usernames()
-            channel = channel_info.get(chat_id)
-            
-            if not channel:
-                await update.message.reply_text(f"❌ Channel with chat_id `{chat_id}` not found")
-                return
-            
-            display_
