@@ -1,6 +1,6 @@
 """
 User Account Monitor with Proper Integration - FIXED VERSION
-FIXES: Event loop conflicts, connection handling, authentication flow
+FIXES: Import errors, event loop conflicts, connection handling
 """
 
 import asyncio
@@ -12,8 +12,7 @@ from telethon import TelegramClient, events
 from telethon.tl.types import Channel, Chat
 from telethon.errors import (
     SessionPasswordNeededError, PhoneCodeInvalidError, PhoneNumberInvalidError,
-    FloodWaitError, RPCError, AuthKeyUnregisteredError, UserDeactivatedError,
-    ConnectionError, TimeoutError
+    FloodWaitError, RPCError, AuthKeyUnregisteredError, UserDeactivatedError
 )
 
 from storage.sqlite_manager import SQLiteManager
@@ -37,7 +36,7 @@ class UserAccountMonitor:
         self._connection_lock = asyncio.Lock()
         self._keep_alive_task = None
         self._reconnect_attempts = 0
-        self._max_reconnect_attempts = 3  # Reduced from 5
+        self._max_reconnect_attempts = 3
         self._shutdown_event = asyncio.Event()
         
         # Authentication state - IMPROVED
@@ -50,11 +49,11 @@ class UserAccountMonitor:
         self._auth_lock = asyncio.Lock()
         
         # Error handling and timeouts - IMPROVED
-        self.max_retries = 2  # Reduced from 3
-        self.operation_timeout = 15  # Reduced from 30
-        self.startup_timeout = 30   # Reduced from 60
-        self.keep_alive_interval = 600  # Increased to 10 minutes
-        self.reconnect_delay = 30  # Delay between reconnect attempts
+        self.max_retries = 2
+        self.operation_timeout = 15
+        self.startup_timeout = 30
+        self.keep_alive_interval = 600  # 10 minutes
+        self.reconnect_delay = 30
         
         # SECURITY: Get authorized admin ID
         self.authorized_admin_id = None
@@ -790,3 +789,4 @@ class UserAccountMonitor:
         except Exception as e:
             logger.error(f"❌ Error getting monitored channels: {e}")
             return []
+            

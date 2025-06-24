@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Telegram Job Collector Bot - Fixed Version
-FIXES: Event loop conflicts, initialization issues, proper error handling
+Enhanced Telegram Job Collector Bot - FIXED EVENT LOOP VERSION
+FIXES: Event loop conflicts, webhook clearing, proper initialization
 """
 
 import asyncio
@@ -45,14 +45,14 @@ class JobCollectorBot:
         if admin_id_str and admin_id_str.isdigit():
             self._admin_id = int(admin_id_str)
         
-        # Initialize managers with backup support
+        # Initialize managers
         logger.info("🔄 Initializing configuration manager...")
         self.config_manager = ConfigManager()
         
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
         self.data_manager = SQLiteManager(db_path)
         
-        # Initialize handlers (core functionality - always works)
+        # Initialize handlers
         self.command_handlers = CommandHandlers(self.data_manager)
         self.callback_handlers = CallbackHandlers(self.data_manager)
         self.message_handlers = MessageHandlers(self.data_manager, self.config_manager)
@@ -82,16 +82,6 @@ class JobCollectorBot:
         
         # Register all handlers
         self.register_handlers()
-        
-        # Set up shutdown handling
-        self._shutdown_event = asyncio.Event()
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
-    
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals"""
-        logger.info(f"Received signal {signum}, initiating shutdown...")
-        self._shutdown_event.set()
     
     def _has_user_credentials(self):
         """Check if user account credentials are provided"""
@@ -103,15 +93,9 @@ class JobCollectorBot:
     
     def register_handlers(self):
         """Register all command and message handlers"""
-        # Command handlers (core functionality)
         self.command_handlers.register(self.app)
-        
-        # Callback handlers (core functionality)
         self.callback_handlers.register(self.app)
-        
-        # Message handlers (core bot monitoring - always active)
         self.message_handlers.register(self.app)
-        
         logger.info("✅ All core handlers registered successfully")
     
     async def start_background_tasks(self):
@@ -124,7 +108,7 @@ class JobCollectorBot:
             # Import from config files if database is empty
             await self._import_on_startup()
             
-            # Initialize error monitoring INDEPENDENT of user monitor
+            # Initialize error monitoring
             await self._initialize_error_monitoring()
             
             # Validate bot channels on startup
@@ -133,7 +117,7 @@ class JobCollectorBot:
             # Set up bot menu
             await self.setup_bot_menu()
             
-            # Start background tasks using job queue - FIXED
+            # Start background tasks using job queue
             self._setup_background_tasks()
             
             # Initialize user monitor AFTER core bot is ready - NON-BLOCKING
@@ -178,7 +162,7 @@ class JobCollectorBot:
             )
     
     def _setup_background_tasks(self):
-        """Set up background tasks with proper job queue - FIXED"""
+        """Set up background tasks with proper job queue"""
         try:
             if not self.app.job_queue:
                 logger.warning("⚠️ JobQueue not available - install python-telegram-bot[job-queue]")
@@ -214,7 +198,7 @@ class JobCollectorBot:
             logger.info("Core bot will continue without background tasks")
     
     async def _check_user_monitor_health(self, context):
-        """Health check for user monitor - FIXED JobQueue compatible"""
+        """Health check for user monitor"""
         if not self.user_monitor:
             return
         
@@ -232,7 +216,7 @@ class JobCollectorBot:
             logger.error(f"Error in user monitor health check: {e}")
     
     async def _reload_config_task(self, context):
-        """Config reload task - FIXED JobQueue compatible"""
+        """Config reload task"""
         try:
             logger.info("🔄 Reloading configuration...")
             
@@ -255,7 +239,7 @@ class JobCollectorBot:
             logger.error(f"Config reload error: {e}")
     
     async def _cleanup_database_task(self, context):
-        """Database cleanup task - NEW"""
+        """Database cleanup task"""
         try:
             logger.info("🧹 Running database cleanup...")
             await self.data_manager.cleanup_old_data(days=30)
@@ -264,7 +248,7 @@ class JobCollectorBot:
             logger.error(f"Database cleanup error: {e}")
     
     async def _validate_bot_channels(self):
-        """Validate bot channels on startup - IMPROVED with better error handling"""
+        """Validate bot channels on startup"""
         try:
             channels = self.config_manager.get_channels_to_monitor()
             if not channels:
@@ -303,7 +287,7 @@ class JobCollectorBot:
                     invalid_channels.append(f"{channel_identifier} (timeout)")
                     logger.error(f"❌ Timeout accessing channel: {channel_identifier}")
                 except Exception as e:
-                    invalid_channels.append(f"{channel_identifier} (error: {str(e)[:30]})")
+                    invalid_channels.append(f"{channel_identifier} (error)")
                     logger.error(f"❌ Error accessing channel {channel_identifier}: {e}")
             
             # Log summary
@@ -324,7 +308,7 @@ class JobCollectorBot:
             logger.error(f"Error in channel validation: {e}")
     
     async def _initialize_error_monitoring(self):
-        """Initialize error monitoring - IMPROVED"""
+        """Initialize error monitoring"""
         if not self._admin_id:
             logger.info("ℹ️ No admin ID configured - error monitoring disabled")
             return
@@ -343,7 +327,7 @@ class JobCollectorBot:
             logger.error(f"Failed to initialize error monitoring: {e}")
     
     async def _notify_admin_about_startup(self):
-        """Notify admin about startup with system info - IMPROVED"""
+        """Notify admin about startup with system info"""
         if not self._admin_id:
             return
         
@@ -388,7 +372,7 @@ class JobCollectorBot:
             logger.warning(f"Could not send startup notification: {e}")
     
     async def _notify_admin_safe(self, message: str):
-        """Send notification to admin with timeout - IMPROVED"""
+        """Send notification to admin with timeout"""
         if not self._admin_id:
             return
         
@@ -405,7 +389,7 @@ class JobCollectorBot:
             logger.error(f"Failed to notify admin: {e}")
     
     async def setup_bot_menu(self):
-        """Set up bot menu commands - IMPROVED with error handling"""
+        """Set up bot menu commands"""
         try:
             from telegram import BotCommand
             from utils.translations import get_text
@@ -429,7 +413,7 @@ class JobCollectorBot:
             logger.warning(f"Could not set bot menu commands: {e}")
     
     async def _import_on_startup(self):
-        """Import from config files if database is empty - IMPROVED"""
+        """Import from config files if database is empty"""
         try:
             # Check if database has data
             all_users = await self.data_manager.get_all_users_with_keywords()
@@ -482,7 +466,7 @@ class JobCollectorBot:
             await self.app.shutdown()
     
     async def shutdown(self):
-        """Graceful shutdown - NEW"""
+        """Graceful shutdown"""
         logger.info("🛑 Starting graceful shutdown...")
         
         try:
@@ -507,7 +491,7 @@ class JobCollectorBot:
             logger.error(f"Error during shutdown: {e}")
 
 def main():
-    """Main function - FIXED with proper error handling and webhook clearing"""
+    """Main function - FIXED with proper event loop handling"""
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         logger.error("❌ TELEGRAM_BOT_TOKEN environment variable not set!")
@@ -518,17 +502,27 @@ def main():
         try:
             from telegram import Bot
             bot = Bot(token)
-            await bot.delete_webhook()
+            
+            # First check current state
             info = await bot.get_webhook_info()
-            if info.pending_update_count > 0:
-                logger.warning(f"⚠️ Cleared webhook, had {info.pending_update_count} pending updates")
+            if info.pending_update_count > 0 or info.url:
+                logger.info(f"🧹 Clearing webhook (URL: {info.url or 'None'}, Pending: {info.pending_update_count})")
+                await bot.delete_webhook(drop_pending_updates=True)
+                
+                # Verify it's cleared
+                new_info = await bot.get_webhook_info()
+                if new_info.pending_update_count > 0:
+                    logger.warning(f"⚠️ Still have {new_info.pending_update_count} pending updates after clearing")
+                else:
+                    logger.info("✅ Webhook cleared successfully")
             else:
-                logger.info("✅ Webhook cleared, no pending updates")
+                logger.info("✅ No webhook or pending updates to clear")
+                
         except Exception as e:
             logger.error(f"❌ Failed to clear webhook: {e}")
     
+    # Clear webhook first - CRITICAL for fixing responsiveness
     try:
-        # Clear webhook first
         asyncio.run(clear_webhook())
     except Exception as e:
         logger.warning(f"Webhook clearing failed: {e}")
@@ -543,7 +537,7 @@ def main():
         logger.info("Starting in scheduled mode...")
         asyncio.run(bot.run_scheduled_job())
     else:
-        # Default: Polling mode
+        # Default: Polling mode - FIXED EVENT LOOP HANDLING
         logger.info("🚀 Starting Job Collector Bot...")
         logger.info("✅ Core functionality: Bot monitoring enabled")
         
@@ -565,20 +559,33 @@ def main():
         bot.app.post_init = post_init
         
         try:
-            # Run using the built-in method (handles event loop properly)
+            # Run using the built-in method - FIXED with proper parameters
             bot.app.run_polling(
                 drop_pending_updates=True,  # CRITICAL: Drop old pending updates
-                stop_signals=[signal.SIGTERM, signal.SIGINT]
+                stop_signals=[signal.SIGTERM, signal.SIGINT],
+                close_loop=False  # FIXED: Don't close the event loop
             )
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt")
         except Exception as e:
             logger.error(f"❌ Bot crashed: {e}")
-            sys.exit(1)
+            # Don't exit immediately - try graceful shutdown
         finally:
             # Cleanup
             try:
-                asyncio.run(bot.shutdown())
+                # Use existing event loop if available
+                loop = None
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+                
+                if loop and not loop.is_closed():
+                    # We're in an existing loop
+                    asyncio.create_task(bot.shutdown())
+                else:
+                    # Create new loop for cleanup
+                    asyncio.run(bot.shutdown())
             except Exception as e:
                 logger.error(f"Shutdown error: {e}")
 
