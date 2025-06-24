@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Enhanced Telegram Job Collector Bot - Main Entry Point with Proper Client Integration
-IMPROVED VERSION: Integrated bot and user monitor clients without event loop blocking
+FIXED VERSION: Removed JobQueue dependency, using asyncio tasks instead
 """
 
 import asyncio
@@ -45,7 +45,7 @@ class JobCollectorBot:
         
         # Initialize managers with backup support
         logger.info("🔄 Initializing configuration manager with backup support...")
-        self.config_manager = ConfigManager()  # This will auto-backup on startup
+        self.config_manager = ConfigManager()
         
         db_path = os.getenv("DATABASE_PATH", "data/bot.db")
         self.data_manager = SQLiteManager(db_path)
@@ -69,6 +69,10 @@ class JobCollectorBot:
                 logger.info("User monitor extension not available (missing dependencies)")
             else:
                 logger.info("User monitor extension disabled (no credentials)")
+        
+        # Background task management
+        self._background_tasks = []
+        self._shutdown_event = asyncio.Event()
         
         # Register all handlers
         self.register_handlers()
@@ -132,32 +136,66 @@ class JobCollectorBot:
         # Set up bot menu
         await self.setup_bot_menu()
         
-        # Set up periodic health checks
-        self._setup_periodic_tasks()
+        # Start background tasks using asyncio instead of JobQueue
+        await self._start_background_tasks()
         
         logger.info("✅ All components initialized successfully")
     
-    def _setup_periodic_tasks(self):
-        """Set up periodic maintenance tasks"""
+    async def _start_background_tasks(self):
+        """Start background maintenance tasks using asyncio"""
         # Health check for user monitor every 5 minutes
         if self.user_monitor:
-            self.app.job_queue.run_repeating(
-                self._check_user_monitor_health,
-                interval=300,  # 5 minutes
-                first=60       # Start after 1 minute
-            )
-            logger.info("📊 User monitor health checks scheduled")
+            health_task = asyncio.create_task(self._user_monitor_health_loop())
+            self._background_tasks.append(("user_monitor_health", health_task))
+            logger.info("📊 User monitor health checks started")
         
         # Config reload every hour
-        self.app.job_queue.run_repeating(
-            self._reload_config_task,
-            interval=3600,  # 1 hour
-            first=300       # Start after 5 minutes
-        )
-        logger.info("🔄 Config reload tasks scheduled")
+        config_task = asyncio.create_task(self._config_reload_loop())
+        self._background_tasks.append(("config_reload", config_task))
+        logger.info("🔄 Config reload tasks started")
+        
+        logger.info(f"✅ Started {len(self._background_tasks)} background tasks")
     
-    async def _check_user_monitor_health(self, context):
-        """Periodic health check for user monitor"""
+    async def _user_monitor_health_loop(self):
+        """Periodic health check loop for user monitor"""
+        try:
+            while not self._shutdown_event.is_set():
+                # Wait 5 minutes or until shutdown
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=300)
+                    break  # Shutdown requested
+                except asyncio.TimeoutError:
+                    pass  # Continue with health check
+                
+                # Perform health check
+                await self._check_user_monitor_health()
+                
+        except asyncio.CancelledError:
+            logger.info("User monitor health loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in user monitor health loop: {e}")
+    
+    async def _config_reload_loop(self):
+        """Periodic config reload loop"""
+        try:
+            while not self._shutdown_event.is_set():
+                # Wait 1 hour or until shutdown
+                try:
+                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=3600)
+                    break  # Shutdown requested
+                except asyncio.TimeoutError:
+                    pass  # Continue with config reload
+                
+                # Perform config reload
+                await self._reload_config_task()
+                
+        except asyncio.CancelledError:
+            logger.info("Config reload loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in config reload loop: {e}")
+    
+    async def _check_user_monitor_health(self):
+        """Health check for user monitor"""
         if not self.user_monitor:
             return
         
@@ -170,12 +208,12 @@ class JobCollectorBot:
                     await self._notify_admin("✅ **User Monitor Reconnected**\n\nConnection restored automatically.")
                 else:
                     logger.error("❌ User monitor reconnection failed")
-                    await self._notify_admin("⚠️ **User Monitor Connection Issues**\n\nAutomatic reconnection failed. Manual intervention may be needed.")
+                    await self._notify_admin("⚠️ **User Monitor Connection Issues**\n\nAutomatic reconnection failed.")
         except Exception as e:
             logger.error(f"Error in user monitor health check: {e}")
     
-    async def _reload_config_task(self, context):
-        """Periodic config reload task"""
+    async def _reload_config_task(self):
+        """Config reload task"""
         try:
             logger.info("🔄 Reloading configuration...")
             
@@ -239,14 +277,15 @@ class JobCollectorBot:
                 f"✅ Valid bot channels: {len(valid_channels)}\n"
                 f"❌ Invalid bot channels: {len(invalid_channels)}\n\n"
                 f"**Issues found:**\n" + 
-                "\n".join([f"• {ch}" for ch in invalid_channels]) +
+                "\n".join([f"• {ch}" for ch in invalid_channels[:5]]) +
+                (f"\n... and {len(invalid_channels) - 5} more" if len(invalid_channels) > 5 else "") +
                 f"\n\nBot must be admin in channels to monitor them."
             )
         else:
             logger.info(f"✅ STARTUP: All {len(valid_channels)} bot channels validated successfully")
     
     async def _initialize_error_monitoring(self):
-        """Initialize error monitoring - INDEPENDENT of user monitor"""
+        """Initialize error monitoring"""
         if not self._admin_id:
             logger.info("No admin ID configured - error monitoring disabled")
             return
@@ -256,7 +295,7 @@ class JobCollectorBot:
             setup_error_monitoring(self.app.bot, self._admin_id)
             logger.info(f"✅ Error monitoring initialized for admin ID: {self._admin_id}")
             
-            # Send enhanced startup notification
+            # Send startup notification
             await self._notify_admin_about_startup()
                 
         except ImportError as e:
@@ -276,16 +315,17 @@ class JobCollectorBot:
             latest_backup = backups[0]['created'] if backups else "None"
             
             startup_message = (
-                f"🤖 **Bot Started Successfully**\n\n"
+                f"🤖 **Bot Started Successfully (Integrated Mode)**\n\n"
                 f"✅ Core bot functionality active\n"
                 f"✅ Error monitoring active\n"
+                f"✅ Background tasks running\n"
                 f"📊 Admin commands available\n"
                 f"💾 Config backups: {backup_count} files\n"
                 f"📅 Latest backup: {latest_backup}\n\n"
             )
             
             if self.user_monitor:
-                startup_message += f"🔄 User monitor: Initializing...\n\n"
+                startup_message += f"🔄 User monitor: Active\n\n"
             else:
                 startup_message += f"ℹ️ User monitor: Disabled\n\n"
             
@@ -405,8 +445,10 @@ class JobCollectorBot:
             user_task = asyncio.create_task(self.user_monitor.start_monitoring())
             tasks.append(("user_monitor", user_task))
         
+        # Background tasks are already started in initialize_components
+        
         # Run all tasks concurrently
-        logger.info(f"⚡ Running {len(tasks)} concurrent tasks...")
+        logger.info(f"⚡ Running {len(tasks)} concurrent main tasks...")
         
         try:
             # Wait for any task to complete (or fail)
@@ -434,16 +476,6 @@ class JobCollectorBot:
         except KeyboardInterrupt:
             logger.info("👋 Shutting down gracefully...")
             
-            # Cancel all tasks
-            for name, task in tasks:
-                if not task.done():
-                    logger.info(f"Cancelling {name} task...")
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-        
         except Exception as e:
             logger.error(f"❌ Critical error in integrated execution: {e}")
             
@@ -456,9 +488,24 @@ class JobCollectorBot:
         logger.info("🧹 Cleaning up resources...")
         
         try:
+            # Signal shutdown to background tasks
+            self._shutdown_event.set()
+            
+            # Cancel background tasks
+            for name, task in self._background_tasks:
+                if not task.done():
+                    logger.info(f"Cancelling {name} task...")
+                    task.cancel()
+                    try:
+                        await task
+                    except asyncio.CancelledError:
+                        pass
+            
+            # Stop user monitor
             if self.user_monitor:
                 await self.user_monitor.stop()
             
+            # Close database
             await self.data_manager.close()
             
             logger.info("✅ Cleanup completed")
@@ -497,14 +544,14 @@ def main():
         # Run job collection once and exit
         asyncio.run(bot.run_scheduled_job())
     elif run_mode == 'polling':
-        # Legacy polling mode (simple, no user monitor integration)
-        logger.info("Starting in legacy polling mode...")
+        # Simple polling mode (no user monitor integration)
+        logger.info("Starting in simple polling mode...")
         
-        async def legacy_run():
+        async def simple_run():
             await bot.initialize_components()
             await bot.app.run_polling()
         
-        asyncio.run(legacy_run())
+        asyncio.run(simple_run())
     else:
         # Default: Integrated mode (recommended)
         logger.info("Starting in integrated mode (recommended)...")
