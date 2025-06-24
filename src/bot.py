@@ -280,18 +280,14 @@ class JobCollectorBot:
         
         commands = [
             BotCommand("start", get_text("menu_command_start", menu_language)),
-            BotCommand("keywords", get_text("menu_command_keywords", menu_language)),
-            BotCommand("ignore_keywords", get_text("menu_command_ignore", menu_language)),
+            BotCommand("manage_keywords", get_text("menu_command_manage", menu_language)),
             BotCommand("my_settings", get_text("menu_command_settings", menu_language)),
-            BotCommand("purge_ignore", get_text("menu_command_purge", menu_language)),
             BotCommand("help", get_text("menu_command_help", menu_language)),
         ]
         
         try:
             await self.app.bot.set_my_commands(commands)
             logger.info("Bot menu commands set (English - configurable via translations)")
-        except Exception as e:
-            logger.warning(f"Could not set bot menu commands: {e}")
         except Exception as e:
             logger.warning(f"Could not set bot menu commands: {e}")
     

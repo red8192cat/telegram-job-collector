@@ -1,5 +1,5 @@
 """
-Command Handlers - Updated with multi-language support
+Command Handlers - Updated with manage_keywords flow
 All user-facing messages are now translated based on user's language preference
 """
 
@@ -12,7 +12,9 @@ from storage.sqlite_manager import SQLiteManager
 from utils.helpers import (
     is_private_chat, create_main_menu, get_help_text, 
     create_keywords_help_keyboard, create_ignore_keywords_help_keyboard,
-    create_language_selection_keyboard, format_settings_message
+    create_language_selection_keyboard, format_settings_message,
+    format_manage_keywords_message, create_manage_keywords_keyboard,
+    create_settings_keyboard
 )
 from utils.translations import get_text, is_supported_language
 
@@ -38,12 +40,15 @@ class CommandHandlers:
     
     def register(self, app):
         """Register command handlers"""
-        # Essential user commands
+        # Essential user commands - UPDATED
         app.add_handler(CommandHandler("start", self.start_command))
         app.add_handler(CommandHandler("help", self.help_command))
+        app.add_handler(CommandHandler("manage_keywords", self.manage_keywords_command))
+        app.add_handler(CommandHandler("my_settings", self.show_settings_command))
+        
+        # Legacy commands (hidden from menu but still work)
         app.add_handler(CommandHandler("keywords", self.set_keywords_command))
         app.add_handler(CommandHandler("ignore_keywords", self.set_ignore_keywords_command))
-        app.add_handler(CommandHandler("my_settings", self.show_settings_command))
         app.add_handler(CommandHandler("purge_ignore", self.purge_ignore_keywords_command))
         
         # Admin commands (hidden from public menu, keep in English)
@@ -63,7 +68,7 @@ class CommandHandlers:
             self.handle_bot_mention_message
         ), group=20)
         
-        logger.info("Enhanced command handlers with multi-language support registered")
+        logger.info("Enhanced command handlers with manage_keywords flow registered")
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle /start command with language selection for new users"""
@@ -117,8 +122,52 @@ class CommandHandlers:
         
         await update.message.reply_text(get_help_text(language))
     
+    async def manage_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /manage_keywords command - NEW unified keyword management"""
+        if not is_private_chat(update):
+            return
+        
+        user_id = update.effective_user.id
+        language = await self.data_manager.get_user_language(user_id)
+        
+        # Get current keywords and ignore keywords
+        keywords = await self.data_manager.get_user_keywords(user_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_id)
+        
+        # Format message with current status
+        title = get_text("manage_keywords_title", language)
+        status_msg = format_manage_keywords_message(keywords, ignore_keywords, language)
+        full_msg = f"{title}\n\n{status_msg}"
+        
+        # Create keyboard based on current state
+        keyboard = create_manage_keywords_keyboard(
+            has_keywords=bool(keywords),
+            has_ignore=bool(ignore_keywords),
+            language=language
+        )
+        
+        await update.message.reply_text(full_msg, reply_markup=keyboard)
+    
+    async def show_settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /my_settings command - shows read-only dashboard"""
+        if not is_private_chat(update):
+            return
+        
+        user_id = update.effective_user.id
+        language = await self.data_manager.get_user_language(user_id)
+        
+        keywords = await self.data_manager.get_user_keywords(user_id)
+        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_id)
+        
+        # Use helper to format message
+        msg = format_settings_message(keywords, ignore_keywords, language)
+        keyboard = create_settings_keyboard(bool(keywords), language)
+        
+        await update.message.reply_text(msg, reply_markup=keyboard)
+    
+    # Legacy commands (keep for backward compatibility but hide from menu)
     async def set_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /keywords command with enhanced success message"""
+        """Handle /keywords command - legacy support"""
         if not is_private_chat(update):
             return
         
@@ -155,7 +204,7 @@ class CommandHandlers:
         await update.message.reply_text(success_message)
     
     async def set_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /ignore_keywords command"""
+        """Handle /ignore_keywords command - legacy support"""
         if not is_private_chat(update):
             return
         
@@ -191,23 +240,8 @@ class CommandHandlers:
         
         await update.message.reply_text(success_message)
     
-    async def show_settings_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /my_settings command - shows both keywords and ignore keywords"""
-        if not is_private_chat(update):
-            return
-        
-        user_id = update.effective_user.id
-        language = await self.data_manager.get_user_language(user_id)
-        
-        keywords = await self.data_manager.get_user_keywords(user_id)
-        ignore_keywords = await self.data_manager.get_user_ignore_keywords(user_id)
-        
-        # Use helper to format message
-        msg = format_settings_message(keywords, ignore_keywords, language)
-        await update.message.reply_text(msg)
-    
     async def purge_ignore_keywords_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /purge_ignore command"""
+        """Handle /purge_ignore command - legacy support"""
         if not is_private_chat(update):
             return
         
@@ -215,10 +249,10 @@ class CommandHandlers:
         language = await self.data_manager.get_user_language(user_id)
         
         if await self.data_manager.purge_user_ignore_keywords(user_id):
-            success_message = get_text("ignore_purge_success", language)
+            success_message = get_text("ignore_cleared_success", language)
             await update.message.reply_text(success_message)
         else:
-            await update.message.reply_text(get_text("ignore_purge_none", language))
+            await update.message.reply_text(get_text("ignore_cleared_none", language))
     
     # Keep all admin methods unchanged (in English)
     async def handle_auth_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
