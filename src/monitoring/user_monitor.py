@@ -1,6 +1,6 @@
 """
-User Account Monitor with Admin-Only Authentication
-Production version with dynamic channel management - FIXED VERSION
+User Account Monitor with Enhanced Database Compatibility
+FIXED: Handles both integer chat_ids and string identifiers
 """
 
 import asyncio
@@ -121,12 +121,20 @@ class UserAccountMonitor:
         """Initialize channels database from config.json"""
         await self.data_manager.init_channels_table()
         
-        # Import from config.json if database is empty
+        # Import from config.json if database is empty (for legacy compatibility)
         existing_channels = await self.data_manager.get_user_monitored_channels_db()
         if not existing_channels:
             config_channels = self.config_manager.get_user_monitored_channels()
             for channel in config_channels:
-                await self.data_manager.add_channel_db(channel, 'user')
+                # Handle both string and integer formats
+                if isinstance(channel, str):
+                    # Legacy string format - parse it
+                    username = channel if channel.startswith('@') else None
+                    chat_id = int(channel) if channel.lstrip('-').isdigit() else hash(channel) % 1000000000
+                    await self.data_manager.add_channel_simple(chat_id, username, 'user')
+                elif isinstance(channel, int):
+                    # Direct chat ID
+                    await self.data_manager.add_channel_simple(channel, None, 'user')
             logger.info(f"⚙️ SYSTEM: Imported {len(config_channels)} channels from config.json")
     
     async def _register_event_handler(self):
@@ -315,41 +323,41 @@ class UserAccountMonitor:
         return True
     
     async def update_monitored_entities(self):
-        """Update the list of entities to monitor from database - SIMPLIFIED VERSION"""
+        """Update the list of entities to monitor - ENHANCED for compatibility"""
         if not self.enabled or not await self.client.is_user_authorized():
             return
             
-        channels = await self.data_manager.get_user_monitored_channels_db()
+        # Get channels from enhanced database
+        user_channels = await self.data_manager.get_simple_user_channels()
         self.monitored_entities = {}
         
-        if not channels:
+        if not user_channels:
             logger.info("⚙️ SYSTEM: No user-monitored channels in database")
             return
         
         valid_channels = []
         invalid_channels = []
         
-        for channel_identifier in channels:
+        for chat_id in user_channels:
             try:
-                if channel_identifier.startswith('@'):
-                    entity = await self.client.get_entity(channel_identifier)
-                elif channel_identifier.startswith('-'):
-                    entity = await self.client.get_entity(int(channel_identifier))
-                else:
-                    entity = await self.client.get_entity(channel_identifier)
+                # Get entity using chat_id (integer)
+                entity = await self.client.get_entity(chat_id)
                 
-                # If we can get the entity, assume we have access
-                # Don't do expensive membership checks on startup
+                # Store with both chat_id and entity
                 self.monitored_entities[entity.id] = {
                     'entity': entity,
-                    'identifier': channel_identifier
+                    'chat_id': chat_id,
+                    'identifier': f"@{entity.username}" if hasattr(entity, 'username') and entity.username else f"Channel {chat_id}"
                 }
-                valid_channels.append(channel_identifier)
-                logger.info(f"✅ STARTUP: User monitor loaded: {channel_identifier}")
+                valid_channels.append(chat_id)
+                
+                # Get display name from database for logging
+                display_name = await self.data_manager.get_channel_display_name(chat_id)
+                logger.info(f"✅ STARTUP: User monitor loaded: {display_name}")
                 
             except Exception as e:
-                invalid_channels.append(channel_identifier)
-                logger.error(f"❌ STARTUP: Failed to load user channel {channel_identifier}: {e}")
+                invalid_channels.append(chat_id)
+                logger.error(f"❌ STARTUP: Failed to load user channel {chat_id}: {e}")
         
         # Only notify about issues if there are any
         if invalid_channels:
@@ -357,139 +365,104 @@ class UserAccountMonitor:
                 f"⚠️ **Channel Loading Issues**\n\n"
                 f"✅ Loaded channels: {len(valid_channels)}\n"
                 f"❌ Failed to load: {len(invalid_channels)}\n\n"
-                f"**Issues found:**\n" + 
+                f"**Chat IDs with issues:**\n" + 
                 "\n".join([f"• {ch}" for ch in invalid_channels]) +
                 f"\n\nUse `/admin channels` to review"
             )
         else:
             logger.info(f"⚙️ SYSTEM: All {len(valid_channels)} user channels loaded successfully")
     
-    async def _check_channel_membership(self, entity, channel_identifier):
-        """Check if user account is a member of the channel - FIXED VERSION"""
-        try:
-            # Get current user
-            me = await self.client.get_me()
-            
-            # For channels, try a simpler approach first
-            if hasattr(entity, 'broadcast') and entity.broadcast:
-                # This is a channel - try to get entity again to check access
-                try:
-                    # If we can get the entity, we likely have access
-                    await self.client.get_entity(entity.id)
-                    return True
-                except Exception:
-                    return False
-            
-            # For groups, try the participants approach with error handling
-            try:
-                # Try to get a small number of participants
-                participants = await self.client.get_participants(entity, limit=1)
-                
-                # If we got here, we have access - now check if we're a member
-                async for participant in self.client.iter_participants(entity, limit=10):
-                    if participant.id == me.id:
-                        return True
-                
-                # We can see participants but we're not in the list
-                return False
-                
-            except Exception as e:
-                # If we can't get participants, we're probably not a member
-                logger.debug(f"Cannot access participants for {channel_identifier}: {e}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Error checking membership for {channel_identifier}: {e}")
-            return False
-    
     async def add_channel(self, channel_identifier: str):
-        """Add new channel to monitoring with auto-join - FIXED VERSION"""
+        """Add new channel to monitoring with auto-join - ENHANCED"""
         if not self.enabled or not await self.client.is_user_authorized():
             return False, "User monitor not authenticated"
 
         try:
-            # Validate and get channel entity
+            # Parse channel identifier and get entity
+            entity = None
             if channel_identifier.startswith('@'):
                 entity = await self.client.get_entity(channel_identifier)
-            elif channel_identifier.startswith('-'):
+            elif 't.me/' in channel_identifier:
+                entity = await self.client.get_entity(channel_identifier)
+            elif channel_identifier.lstrip('-').isdigit():
                 entity = await self.client.get_entity(int(channel_identifier))
             else:
                 entity = await self.client.get_entity(channel_identifier)
 
+            chat_id = entity.id
+            username = f"@{entity.username}" if hasattr(entity, 'username') and entity.username else None
+
             # Check if already in database
-            existing_channels = await self.data_manager.get_user_monitored_channels_db()
-            if channel_identifier in existing_channels:
+            existing_channels = await self.data_manager.get_simple_user_channels()
+            if chat_id in existing_channels:
                 return False, "Channel already exists in monitoring list"
 
-            # Try to join the channel FIRST (don't check membership beforehand)
+            # Try to join the channel
             try:
                 from telethon.tl.functions.channels import JoinChannelRequest
                 await self.client(JoinChannelRequest(entity))
-                logger.info(f"⚙️ SYSTEM: Successfully joined channel: {channel_identifier}")
+                logger.info(f"⚙️ SYSTEM: Successfully joined channel: {chat_id}")
                 join_status = "joined and monitoring"
                 
             except Exception as join_error:
                 # Check if the error is because we're already a member
                 error_msg = str(join_error).lower()
                 if any(phrase in error_msg for phrase in ["already", "participant", "member"]):
-                    logger.info(f"⚙️ SYSTEM: Already member of: {channel_identifier}")
+                    logger.info(f"⚙️ SYSTEM: Already member of: {chat_id}")
                     join_status = "already joined, now monitoring"
                 else:
                     # Real join failure
-                    logger.error(f"⚙️ SYSTEM: Failed to join {channel_identifier}: {join_error}")
+                    logger.error(f"⚙️ SYSTEM: Failed to join {chat_id}: {join_error}")
                     return False, f"❌ Cannot join channel: {str(join_error)}"
 
-            # If we got here, we successfully joined or were already a member
-            # Add to database
-            success = await self.data_manager.add_channel_db(channel_identifier, 'user')
+            # Add to database with enhanced format
+            success = await self.data_manager.add_channel_simple(chat_id, username, 'user')
             if not success:
                 return False, "Failed to add channel to database"
 
             # Add to monitored entities
             self.monitored_entities[entity.id] = {
                 'entity': entity,
-                'identifier': channel_identifier
+                'chat_id': chat_id,
+                'identifier': username or f"Channel {chat_id}"
             }
 
-            # Update config.json
+            # Export config
             await self._export_config()
 
-            logger.info(f"⚙️ SYSTEM: Added user channel: {channel_identifier}")
-            return True, f"✅ Successfully {join_status}: {channel_identifier}"
+            display_name = username or getattr(entity, 'title', f'Channel {chat_id}')
+            logger.info(f"⚙️ SYSTEM: Added user channel: {display_name}")
+            return True, f"✅ Successfully {join_status}: {display_name}"
 
         except Exception as e:
             logger.error(f"⚙️ SYSTEM: Failed to add channel {channel_identifier}: {e}")
             return False, f"❌ Cannot access channel: {str(e)}"
     
-    async def remove_channel(self, channel_identifier: str):
+    async def remove_channel(self, chat_id: int):
         """Remove channel from monitoring with auto-leave"""
         try:
             # Check if in database
-            existing_channels = await self.data_manager.get_user_monitored_channels_db()
-            if channel_identifier not in existing_channels:
+            existing_channels = await self.data_manager.get_simple_user_channels()
+            if chat_id not in existing_channels:
                 return False, "Channel not found in monitoring list"
             
-            # Get entity and leave channel
+            display_name = await self.data_manager.get_channel_display_name(chat_id)
+            
+            # Auto-leave the channel
             leave_status = "stopped monitoring"
             if self.enabled and await self.client.is_user_authorized():
                 try:
-                    if channel_identifier.startswith('@'):
-                        entity = await self.client.get_entity(channel_identifier)
-                    elif channel_identifier.startswith('-'):
-                        entity = await self.client.get_entity(int(channel_identifier))
-                    else:
-                        entity = await self.client.get_entity(channel_identifier)
+                    entity = await self.client.get_entity(chat_id)
                     
-                    # Auto-leave the channel
                     from telethon.tl.functions.channels import LeaveChannelRequest
                     await self.client(LeaveChannelRequest(entity))
-                    logger.info(f"⚙️ SYSTEM: Auto-left channel: {channel_identifier}")
+                    logger.info(f"⚙️ SYSTEM: Auto-left channel: {display_name}")
                     leave_status = "left and stopped monitoring"
                     
                     # Remove from monitored entities
                     entity_id_to_remove = None
                     for entity_id, info in self.monitored_entities.items():
-                        if info['identifier'] == channel_identifier:
+                        if info['chat_id'] == chat_id:
                             entity_id_to_remove = entity_id
                             break
                     
@@ -497,27 +470,27 @@ class UserAccountMonitor:
                         del self.monitored_entities[entity_id_to_remove]
                         
                 except Exception as leave_error:
-                    logger.warning(f"⚙️ SYSTEM: Could not leave {channel_identifier}: {leave_error}")
+                    logger.warning(f"⚙️ SYSTEM: Could not leave {display_name}: {leave_error}")
                     leave_status = "stopped monitoring (could not leave channel)"
             
             # Remove from database
-            success = await self.data_manager.remove_channel_db(channel_identifier, 'user')
+            success = await self.data_manager.remove_channel_simple(chat_id, 'user')
             if not success:
                 return False, "Failed to remove channel from database"
             
-            # Update config.json
+            # Export config
             await self._export_config()
             
-            logger.info(f"⚙️ SYSTEM: Removed user channel: {channel_identifier}")
-            return True, f"✅ Successfully {leave_status}: {channel_identifier}"
+            logger.info(f"⚙️ SYSTEM: Removed user channel: {display_name}")
+            return True, f"✅ Successfully {leave_status}: {display_name}"
             
         except Exception as e:
-            logger.error(f"⚙️ SYSTEM: Failed to remove channel {channel_identifier}: {e}")
+            logger.error(f"⚙️ SYSTEM: Failed to remove channel {chat_id}: {e}")
             return False, f"❌ Error removing channel: {str(e)}"
     
     async def get_monitored_channels(self):
         """Get list of currently monitored channels"""
-        channels = await self.data_manager.get_user_monitored_channels_db()
+        channels = await self.data_manager.get_simple_user_channels()
         return channels
     
     async def _export_config(self):
@@ -533,6 +506,7 @@ class UserAccountMonitor:
             
         except Exception as e:
             logger.error(f"⚙️ SYSTEM: Failed to export config: {e}")
+    
     async def process_channel_message(self, event):
         """Process new message from user-monitored channels"""
         if not self.enabled or not event.message or not event.message.text:
@@ -555,7 +529,9 @@ class UserAccountMonitor:
         channel_info = self.monitored_entities[lookup_id]
         message_text = event.message.text
         
-        logger.info(f"📨 EVENT: Processing message from {channel_info['identifier']}")
+        # Get display name for logging
+        display_name = channel_info.get('identifier', f"Channel {chat_id}")
+        logger.info(f"📨 EVENT: Processing message from {display_name}")
         
         # Get users and process keywords
         all_users = await self.data_manager.get_all_users_with_keywords()
@@ -592,18 +568,10 @@ class UserAccountMonitor:
             return
         
         try:
-            # Convert chat_id to entity_id for lookup
-            entity_id = None
-            if source_chat_id < 0 and str(source_chat_id).startswith('-100'):
-                entity_id = int(str(source_chat_id)[4:])
-            else:
-                entity_id = abs(source_chat_id) if source_chat_id < 0 else source_chat_id
+            # Get display name for the message
+            display_name = await self.data_manager.get_channel_display_name(source_chat_id)
             
-            # Get channel name
-            source_info = self.monitored_entities.get(entity_id) or self.monitored_entities.get(source_chat_id, {})
-            source_name = source_info.get('identifier', f'Channel {source_chat_id}')
-            
-            formatted_message = f"📋 Job from {source_name}:\n\n{message.text}"
+            formatted_message = f"📋 Job from {display_name}:\n\n{message.text}"
             
             await self.bot_instance.send_message(
                 chat_id=user_chat_id,
