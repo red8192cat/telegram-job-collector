@@ -661,4 +661,132 @@ class UserAccountMonitor:
                     if self.keyword_matcher.matches_ignore_keywords(message_text, ignore_keywords):
                         continue
                     
-                    #
+                    # Forward message via bot
+                    if self.bot_instance:
+                        try:
+                            await asyncio.wait_for(
+                                self.forward_message_via_bot(user_chat_id, event.message, chat_id),
+                                timeout=15
+                            )
+                            forwarded_count += 1
+                            await asyncio.sleep(0.5)  # Rate limiting
+                        except Exception as e:
+                            logger.error(f"❌ Failed to forward to user {user_chat_id}: {e}")
+                
+                except Exception as e:
+                    logger.error(f"❌ Error processing user {user_chat_id}: {e}")
+                    continue
+            
+            if forwarded_count > 0:
+                logger.info(f"📤 User monitor forwarded message to {forwarded_count} users")
+                
+        except Exception as e:
+            logger.error(f"❌ Error in process_channel_message: {e}")
+    
+    async def forward_message_via_bot(self, user_chat_id, message, source_chat_id):
+        """Forward message via bot - IMPROVED with error handling"""
+        if not self.bot_instance:
+            return
+        
+        try:
+            display_name = await asyncio.wait_for(
+                self.data_manager.get_channel_display_name(source_chat_id),
+                timeout=5
+            )
+            
+            formatted_message = f"📋 Job from {display_name}:\n\n{message.text}"
+            
+            await self.bot_instance.send_message(
+                chat_id=user_chat_id,
+                text=formatted_message
+            )
+            
+            # Log the forward
+            await self.data_manager.log_message_forward(
+                user_chat_id, source_chat_id, message.id
+            )
+            
+        except Exception as e:
+            logger.error(f"❌ Error forwarding via bot: {e}")
+            raise
+    
+    async def stop(self):
+        """Stop the user monitor gracefully - IMPROVED"""
+        logger.info("🛑 Stopping user monitor...")
+        
+        try:
+            # Signal shutdown
+            self._shutdown_event.set()
+            self.enabled = False
+            
+            # Cancel keep-alive task
+            if self._keep_alive_task and not self._keep_alive_task.done():
+                self._keep_alive_task.cancel()
+                try:
+                    await asyncio.wait_for(self._keep_alive_task, timeout=5)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+            
+            # Disconnect client with lock
+            async with self._connection_lock:
+                if self.client and self.client.is_connected():
+                    await asyncio.wait_for(self.client.disconnect(), timeout=10)
+                    self._connected = False
+            
+            logger.info("✅ User monitor stopped successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Error stopping user monitor: {e}")
+    
+    # Additional helper methods for channel management - IMPROVED
+    async def add_channel(self, channel_identifier: str):
+        """Add new channel to monitoring - IMPROVED"""
+        try:
+            if not self.is_connected():
+                return False, "User monitor not connected"
+            
+            # Try to get entity
+            entity = await asyncio.wait_for(
+                self.client.get_entity(channel_identifier),
+                timeout=15
+            )
+            
+            # Add to database
+            username = f"@{entity.username}" if hasattr(entity, 'username') and entity.username else None
+            success = await self.data_manager.add_channel_simple(entity.id, username, 'user')
+            
+            if success:
+                # Update monitored entities
+                await self._update_monitored_entities_safe()
+                return True, f"Channel added successfully: {username or entity.id}"
+            else:
+                return False, "Channel already exists"
+                
+        except Exception as e:
+            logger.error(f"❌ Error adding channel: {e}")
+            return False, f"Error adding channel: {str(e)}"
+    
+    async def remove_channel(self, chat_id: int):
+        """Remove channel from monitoring - IMPROVED"""
+        try:
+            success = await self.data_manager.remove_channel_simple(chat_id, 'user')
+            
+            if success:
+                # Update monitored entities
+                await self._update_monitored_entities_safe()
+                return True, "Channel removed successfully"
+            else:
+                return False, "Channel not found"
+                
+        except Exception as e:
+            logger.error(f"❌ Error removing channel: {e}")
+            return False, f"Error removing channel: {str(e)}"
+    
+    async def get_monitored_channels(self):
+        """Get list of currently monitored channels - IMPROVED"""
+        try:
+            channels = await self.data_manager.get_simple_user_channels()
+            return channels
+        except Exception as e:
+            logger.error(f"❌ Error getting monitored channels: {e}")
+            return []
