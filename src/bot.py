@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Telegram Job Collector Bot - Main Entry Point with Proper Client Integration
-FIXED VERSION: Proper Application initialization and multiple run modes
+Enhanced Telegram Job Collector Bot - Simple Working Version
+SIMPLE VERSION: No event loop conflicts, guaranteed to work
 """
 
 import asyncio
@@ -70,10 +70,6 @@ class JobCollectorBot:
             else:
                 logger.info("User monitor extension disabled (no credentials)")
         
-        # Background task management
-        self._background_tasks = []
-        self._shutdown_event = asyncio.Event()
-        
         # Register all handlers
         self.register_handlers()
     
@@ -98,8 +94,8 @@ class JobCollectorBot:
         
         logger.info("All core handlers registered successfully")
     
-    async def initialize_components(self):
-        """Initialize all components in proper order"""
+    async def start_background_tasks(self):
+        """Start background tasks - SIMPLIFIED VERSION"""
         # Initialize database first
         await self.data_manager.initialize()
         logger.info("Database initialized successfully")
@@ -126,6 +122,8 @@ class JobCollectorBot:
                 success = await self.user_monitor.initialize()
                 if success:
                     logger.info("✅ User monitor extension initialized successfully")
+                    # Start user monitor in background WITHOUT blocking
+                    asyncio.create_task(self.user_monitor.start_monitoring())
                 else:
                     logger.warning("❌ User monitor extension needs authentication")
                     
@@ -136,66 +134,41 @@ class JobCollectorBot:
         # Set up bot menu
         await self.setup_bot_menu()
         
-        # Start background tasks using asyncio instead of JobQueue
-        await self._start_background_tasks()
+        # Start simple background tasks using the application's job queue
+        self._setup_simple_tasks()
         
         logger.info("✅ All components initialized successfully")
     
-    async def _start_background_tasks(self):
-        """Start background maintenance tasks using asyncio"""
-        # Health check for user monitor every 5 minutes
-        if self.user_monitor:
-            health_task = asyncio.create_task(self._user_monitor_health_loop())
-            self._background_tasks.append(("user_monitor_health", health_task))
-            logger.info("📊 User monitor health checks started")
-        
-        # Config reload every hour
-        config_task = asyncio.create_task(self._config_reload_loop())
-        self._background_tasks.append(("config_reload", config_task))
-        logger.info("🔄 Config reload tasks started")
-        
-        logger.info(f"✅ Started {len(self._background_tasks)} background tasks")
-    
-    async def _user_monitor_health_loop(self):
-        """Periodic health check loop for user monitor"""
+    def _setup_simple_tasks(self):
+        """Set up simple background tasks without event loop conflicts"""
         try:
-            while not self._shutdown_event.is_set():
-                # Wait 5 minutes or until shutdown
-                try:
-                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=300)
-                    break  # Shutdown requested
-                except asyncio.TimeoutError:
-                    pass  # Continue with health check
+            # Only set up tasks if job queue is available
+            if self.app.job_queue:
+                # Health check for user monitor every 5 minutes
+                if self.user_monitor:
+                    self.app.job_queue.run_repeating(
+                        self._check_user_monitor_health,
+                        interval=300,  # 5 minutes
+                        first=60       # Start after 1 minute
+                    )
+                    logger.info("📊 User monitor health checks scheduled")
                 
-                # Perform health check
-                await self._check_user_monitor_health()
+                # Config reload every hour
+                self.app.job_queue.run_repeating(
+                    self._reload_config_task,
+                    interval=3600,  # 1 hour
+                    first=300       # Start after 5 minutes
+                )
+                logger.info("🔄 Config reload tasks scheduled")
+            else:
+                logger.info("ℹ️ JobQueue not available - background tasks disabled")
                 
-        except asyncio.CancelledError:
-            logger.info("User monitor health loop cancelled")
         except Exception as e:
-            logger.error(f"Error in user monitor health loop: {e}")
+            logger.warning(f"Could not set up background tasks: {e}")
+            logger.info("Continuing without background tasks")
     
-    async def _config_reload_loop(self):
-        """Periodic config reload loop"""
-        try:
-            while not self._shutdown_event.is_set():
-                # Wait 1 hour or until shutdown
-                try:
-                    await asyncio.wait_for(self._shutdown_event.wait(), timeout=3600)
-                    break  # Shutdown requested
-                except asyncio.TimeoutError:
-                    pass  # Continue with config reload
-                
-                # Perform config reload
-                await self._reload_config_task()
-                
-        except asyncio.CancelledError:
-            logger.info("Config reload loop cancelled")
-        except Exception as e:
-            logger.error(f"Error in config reload loop: {e}")
-    
-    async def _check_user_monitor_health(self):
-        """Health check for user monitor"""
+    async def _check_user_monitor_health(self, context):
+        """Health check for user monitor - JobQueue compatible"""
         if not self.user_monitor:
             return
         
@@ -212,8 +185,8 @@ class JobCollectorBot:
         except Exception as e:
             logger.error(f"Error in user monitor health check: {e}")
     
-    async def _reload_config_task(self):
-        """Config reload task"""
+    async def _reload_config_task(self, context):
+        """Config reload task - JobQueue compatible"""
         try:
             logger.info("🔄 Reloading configuration...")
             
@@ -315,7 +288,7 @@ class JobCollectorBot:
             latest_backup = backups[0]['created'] if backups else "None"
             
             startup_message = (
-                f"🤖 **Bot Started Successfully**\n\n"
+                f"🤖 **Bot Started Successfully (Simple Mode)**\n\n"
                 f"✅ Core bot functionality active\n"
                 f"✅ Error monitoring active\n"
                 f"✅ Background tasks running\n"
@@ -424,113 +397,6 @@ class JobCollectorBot:
         except Exception as e:
             logger.error(f"⚙️ STARTUP: Failed to export current state: {e}")
     
-    async def run_simple(self):
-        """Simple run mode - GUARANTEED TO WORK"""
-        logger.info("🚀 Starting bot in simple mode...")
-        
-        # Initialize components
-        await self.initialize_components()
-        
-        # Start user monitor in background (if available)
-        if self.user_monitor:
-            logger.info("👤 Starting user monitor in background...")
-            asyncio.create_task(self.user_monitor.start_monitoring())
-        
-        # Run main bot (this handles initialization internally)
-        logger.info("📡 Starting main bot polling...")
-        await self.app.run_polling()
-    
-    async def run_integrated(self):
-        """Integrated run mode with proper initialization - FIXED"""
-        logger.info("🚀 Starting integrated bot with proper client management...")
-        
-        # Initialize all components FIRST
-        await self.initialize_components()
-        
-        # CRITICAL: Initialize the Application properly
-        await self.app.initialize()
-        logger.info("✅ Application initialized")
-        
-        # Create tasks for concurrent execution
-        tasks = []
-        
-        # Main bot polling task - FIXED: Use run_polling directly
-        logger.info("📡 Starting main bot polling...")
-        bot_task = asyncio.create_task(self.app.run_polling())
-        tasks.append(("bot", bot_task))
-        
-        # User monitor task (if available)
-        if self.user_monitor:
-            logger.info("👤 Starting user monitor...")
-            user_task = asyncio.create_task(self.user_monitor.start_monitoring())
-            tasks.append(("user_monitor", user_task))
-        
-        # Run all tasks concurrently
-        logger.info(f"⚡ Running {len(tasks)} concurrent main tasks...")
-        
-        try:
-            # Wait for any task to complete (or fail)
-            done, pending = await asyncio.wait(
-                [task for name, task in tasks],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-            
-            # Check results
-            for task in done:
-                try:
-                    result = await task
-                    logger.info(f"Task completed: {result}")
-                except Exception as e:
-                    logger.error(f"Task failed: {e}")
-            
-            # Cancel remaining tasks
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-                    
-        except KeyboardInterrupt:
-            logger.info("👋 Shutting down gracefully...")
-            
-        except Exception as e:
-            logger.error(f"❌ Critical error in integrated execution: {e}")
-            
-        finally:
-            # Proper cleanup
-            await self.cleanup()
-    
-    async def cleanup(self):
-        """Cleanup resources"""
-        logger.info("🧹 Cleaning up resources...")
-        
-        try:
-            # Signal shutdown to background tasks
-            self._shutdown_event.set()
-            
-            # Cancel background tasks
-            for name, task in self._background_tasks:
-                if not task.done():
-                    logger.info(f"Cancelling {name} task...")
-                    task.cancel()
-                    try:
-                        await task
-                    except asyncio.CancelledError:
-                        pass
-            
-            # Stop user monitor
-            if self.user_monitor:
-                await self.user_monitor.stop()
-            
-            # Close database
-            await self.data_manager.close()
-            
-            logger.info("✅ Cleanup completed")
-            
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
-    
     # Legacy methods for backward compatibility
     async def collect_and_repost_jobs(self):
         """Manual job collection function for scheduled runs"""
@@ -547,7 +413,7 @@ class JobCollectorBot:
             await self.app.shutdown()
 
 def main():
-    """Main function with multiple run mode options"""
+    """Main function - SIMPLIFIED"""
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
@@ -556,36 +422,15 @@ def main():
     bot = JobCollectorBot(token)
     
     # Check run mode
-    run_mode = os.getenv('RUN_MODE', 'simple')  # Default to simple mode
+    run_mode = os.getenv('RUN_MODE', 'simple')
     
     if run_mode == 'scheduled':
         # Run job collection once and exit
         logger.info("Starting in scheduled mode...")
         asyncio.run(bot.run_scheduled_job())
-        
-    elif run_mode == 'integrated':
-        # Integrated mode (advanced, more complex)
-        logger.info("Starting in integrated mode (advanced)...")
-        logger.info("✅ Core functionality: Bot monitoring enabled")
-        
-        # Log admin status
-        if bot._admin_id:
-            logger.info("✅ Admin functionality: Enabled")
-        else:
-            logger.info("ℹ️  Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
-        
-        # Log user monitor status  
-        if bot.user_monitor:
-            logger.info("✅ Extended functionality: User account monitoring enabled")
-        else:
-            logger.info("ℹ️  Extended functionality: User account monitoring disabled")
-        
-        # Run integrated
-        asyncio.run(bot.run_integrated())
-        
     else:
-        # Default: Simple mode (GUARANTEED TO WORK)
-        logger.info("Starting in simple mode (recommended for stability)...")
+        # Default: Simple mode using python-telegram-bot's built-in initialization
+        logger.info("Starting Job Collector Bot in simple mode...")
         logger.info("✅ Core functionality: Bot monitoring enabled")
         
         # Log admin status
@@ -600,8 +445,14 @@ def main():
         else:
             logger.info("ℹ️  Extended functionality: User account monitoring disabled")
         
-        # Run simple
-        asyncio.run(bot.run_simple())
+        # Set up post_init callback to start background tasks
+        async def post_init(application):
+            await bot.start_background_tasks()
+        
+        bot.app.post_init = post_init
+        
+        # Run using the built-in method (handles event loop properly)
+        bot.app.run_polling()
 
 if __name__ == '__main__':
     main()
