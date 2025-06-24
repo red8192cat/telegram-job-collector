@@ -472,56 +472,109 @@ class CommandHandlers:
         try:
             await update.message.reply_text(f"🔍 Looking for channel: `{channel_input}`...")
             
-            # Parse different input formats to find the channel
             target_chat_id = None
             target_channel_info = None
+            search_method = "unknown"
             
-            # Get all channels to search through
-            channel_info = await self.data_manager.get_all_channels_with_usernames()
-            
-            if channel_input.lstrip('-').isdigit():
-                # Direct chat ID
-                target_chat_id = int(channel_input)
-                target_channel_info = channel_info.get(target_chat_id)
+            # STEP 1: Try to get current info from Telegram FIRST (for any input format)
+            try:
+                # Parse the input to a format Telegram API can understand
+                telegram_identifier = None
                 
-            elif channel_input.startswith('@'):
-                # Username format
-                for chat_id, info in channel_info.items():
-                    if info['username'] and info['username'].lower() == channel_input.lower():
-                        target_chat_id = chat_id
-                        target_channel_info = info
-                        break
+                if channel_input.lstrip('-').isdigit():
+                    # Direct chat ID - use as is
+                    telegram_identifier = int(channel_input)
+                elif channel_input.startswith('@'):
+                    # Username format - use as is
+                    telegram_identifier = channel_input
+                elif 't.me/' in channel_input or 'telegram.me/' in channel_input:
+                    # URL format - extract username
+                    url_pattern = r'(?:https?://)?(?:t\.me|telegram\.me)/([^/\s]+)'
+                    match = re.search(url_pattern, channel_input)
+                    if match:
+                        telegram_identifier = f"@{match.group(1)}"
+                
+                # Try to get current channel info from Telegram
+                if telegram_identifier:
+                    chat = await context.bot.get_chat(telegram_identifier)
+                    target_chat_id = chat.id  # Use CURRENT chat_id from Telegram
+                    search_method = "telegram_api"
+                    logger.info(f"Found channel via Telegram API: {chat.title or chat.username} (ID: {target_chat_id})")
+                    
+                    # Now find this chat_id in our database to get the type
+                    channel_info = await self.data_manager.get_all_channels_with_usernames()
+                    target_channel_info = channel_info.get(target_chat_id)
+                    
+                    if not target_channel_info:
+                        await update.message.reply_text(
+                            f"❌ **Channel exists on Telegram but not in bot database**\n\n"
+                            f"📋 **Channel:** {chat.title or chat.username or target_chat_id}\n"
+                            f"🆔 **Chat ID:** `{target_chat_id}`\n\n"
+                            f"This channel is not being monitored by the bot.\n"
+                            f"Use `/admin channels` to see monitored channels.",
+                            parse_mode='Markdown'
+                        )
+                        return
                         
-            elif 't.me/' in channel_input or 'telegram.me/' in channel_input:
-                # URL format - extract username
-                url_pattern = r'(?:https?://)?(?:t\.me|telegram\.me)/([^/\s]+)'
-                match = re.search(url_pattern, channel_input)
-                if match:
-                    username_from_url = f"@{match.group(1)}"
+            except Exception as telegram_error:
+                logger.info(f"Telegram API lookup failed for {channel_input}: {telegram_error}")
+                # Continue to database fallback
+                pass
+            
+            # STEP 2: If Telegram lookup failed, search database for stored info
+            if not target_chat_id or not target_channel_info:
+                logger.info(f"Falling back to database search for: {channel_input}")
+                channel_info = await self.data_manager.get_all_channels_with_usernames()
+                search_method = "database_fallback"
+                
+                if channel_input.lstrip('-').isdigit():
+                    # Direct chat ID
+                    target_chat_id = int(channel_input)
+                    target_channel_info = channel_info.get(target_chat_id)
+                    
+                elif channel_input.startswith('@'):
+                    # Username format - search database
                     for chat_id, info in channel_info.items():
-                        if info['username'] and info['username'].lower() == username_from_url.lower():
+                        if info['username'] and info['username'].lower() == channel_input.lower():
                             target_chat_id = chat_id
                             target_channel_info = info
                             break
+                            
+                elif 't.me/' in channel_input or 'telegram.me/' in channel_input:
+                    # URL format - extract username and search database
+                    url_pattern = r'(?:https?://)?(?:t\.me|telegram\.me)/([^/\s]+)'
+                    match = re.search(url_pattern, channel_input)
+                    if match:
+                        username_from_url = f"@{match.group(1)}"
+                        for chat_id, info in channel_info.items():
+                            if info['username'] and info['username'].lower() == username_from_url.lower():
+                                target_chat_id = chat_id
+                                target_channel_info = info
+                                break
+                
+                # STEP 3: Last resort - partial display name search
+                if not target_chat_id or not target_channel_info:
+                    for chat_id, info in channel_info.items():
+                        if channel_input.lower() in info['display_name'].lower():
+                            target_chat_id = chat_id
+                            target_channel_info = info
+                            search_method = "display_name_search"
+                            break
             
-            if not target_chat_id or not target_channel_info:
-                # Try to search by display name as fallback
-                for chat_id, info in channel_info.items():
-                    if channel_input.lower() in info['display_name'].lower():
-                        target_chat_id = chat_id
-                        target_channel_info = info
-                        break
-            
+            # STEP 4: Final check - if still nothing found
             if not target_chat_id or not target_channel_info:
                 await update.message.reply_text(
                     f"❌ **Channel not found:** `{channel_input}`\n\n"
-                    f"**Available channels:**\n"
-                    f"Use `/admin channels` to see all channels with their identifiers.",
+                    f"**Searched:**\n"
+                    f"• Telegram API (current info)\n"
+                    f"• Bot database (stored channels)\n"
+                    f"• Display name matching\n\n"
+                    f"Use `/admin channels` to see all monitored channels.",
                     parse_mode='Markdown'
                 )
                 return
             
-            # Remove the channel
+            # STEP 5: Remove the channel
             channel_type = target_channel_info['type']
             success = await self.data_manager.remove_channel_simple(target_chat_id, channel_type)
             
@@ -529,15 +582,25 @@ class CommandHandlers:
                 # Export config
                 await self._export_enhanced_config()
                 
-                await update.message.reply_text(
-                    f"✅ **Channel removed successfully!**\n\n"
-                    f"📋 **Removed:** {target_channel_info['display_name']}\n"
-                    f"🆔 **Chat ID:** `{target_chat_id}`\n"
-                    f"🔗 **Username:** {target_channel_info['username'] or 'None'}\n"
-                    f"📊 **Type:** {channel_type}\n\n"
-                    + (f"💡 **Note:** User monitor will auto-leave this channel" if channel_type == 'user' else ""),
-                    parse_mode='Markdown'
-                )
+                # Create success message with search method info
+                success_msg = f"✅ **Channel removed successfully!**\n\n"
+                success_msg += f"📋 **Removed:** {target_channel_info['display_name']}\n"
+                success_msg += f"🆔 **Chat ID:** `{target_chat_id}`\n"
+                success_msg += f"🔗 **Username:** {target_channel_info['username'] or 'None'}\n"
+                success_msg += f"📊 **Type:** {channel_type}\n"
+                
+                # Add search method info for transparency
+                if search_method == "telegram_api":
+                    success_msg += f"\n🔍 **Found via:** Telegram API (current info)\n"
+                elif search_method == "database_fallback":
+                    success_msg += f"\n🔍 **Found via:** Database search (stored info)\n"
+                elif search_method == "display_name_search":
+                    success_msg += f"\n🔍 **Found via:** Display name matching\n"
+                
+                if channel_type == 'user':
+                    success_msg += f"\n💡 **Note:** User monitor will auto-leave this channel"
+                
+                await update.message.reply_text(success_msg, parse_mode='Markdown')
             else:
                 await update.message.reply_text("❌ Failed to remove channel from database")
                 
