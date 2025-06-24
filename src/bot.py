@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Enhanced Telegram Job Collector Bot - MINIMAL FIX
-DISABLES user monitor temporarily to get core bot working
+Enhanced Telegram Job Collector Bot - FINAL FIX
+Uses manual event loop management to avoid conflicts
 """
 
 import asyncio
@@ -10,7 +10,7 @@ import os
 import signal
 import sys
 
-from telegram.ext import Application
+from telegram.ext import Application, Updater
 
 from handlers.commands import CommandHandlers
 from handlers.callbacks import CallbackHandlers
@@ -48,9 +48,9 @@ class JobCollectorBot:
         self.callback_handlers = CallbackHandlers(self.data_manager)
         self.message_handlers = MessageHandlers(self.data_manager, self.config_manager)
         
-        # DISABLE user monitor for now to get core bot working
+        # DISABLE user monitor for now
         self.user_monitor = None
-        logger.info("ℹ️ User monitor temporarily disabled to avoid event loop issues")
+        logger.info("ℹ️ User monitor temporarily disabled")
         
         # Register all handlers
         self.register_handlers()
@@ -340,6 +340,42 @@ class JobCollectorBot:
         finally:
             await self.app.shutdown()
     
+    async def run_polling_manually(self):
+        """Run polling manually with proper event loop"""
+        try:
+            # Initialize the application
+            await self.app.initialize()
+            
+            # Start background tasks
+            await self.start_background_tasks()
+            
+            # Start the updater
+            await self.app.updater.start_polling(drop_pending_updates=True)
+            
+            # Start the application
+            await self.app.start()
+            
+            logger.info("✅ Bot is now running and listening for updates...")
+            
+            # Keep running until stopped
+            try:
+                while True:
+                    await asyncio.sleep(1)
+            except KeyboardInterrupt:
+                logger.info("Received keyboard interrupt")
+                
+        except Exception as e:
+            logger.error(f"Error in manual polling: {e}")
+            raise
+        finally:
+            # Clean shutdown
+            try:
+                await self.app.stop()
+                await self.app.updater.stop()
+                await self.app.shutdown()
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
+    
     async def shutdown(self):
         """Graceful shutdown"""
         logger.info("🛑 Starting graceful shutdown...")
@@ -352,44 +388,38 @@ class JobCollectorBot:
         except Exception as e:
             logger.error(f"Error during shutdown: {e}")
 
+async def clear_webhook(token):
+    """Clear webhook and pending updates"""
+    try:
+        from telegram import Bot
+        bot = Bot(token)
+        
+        # First check current state
+        info = await bot.get_webhook_info()
+        if info.pending_update_count > 0 or info.url:
+            logger.info(f"🧹 Clearing webhook (URL: {info.url or 'None'}, Pending: {info.pending_update_count})")
+            await bot.delete_webhook(drop_pending_updates=True)
+            
+            # Verify it's cleared
+            new_info = await bot.get_webhook_info()
+            if new_info.pending_update_count > 0:
+                logger.warning(f"⚠️ Still have {new_info.pending_update_count} pending updates after clearing")
+            else:
+                logger.info("✅ Webhook cleared successfully")
+        else:
+            logger.info("✅ No webhook or pending updates to clear")
+            
+    except Exception as e:
+        logger.error(f"❌ Failed to clear webhook: {e}")
+
 def main():
-    """Main function - SIMPLIFIED"""
+    """Main function - FINAL FIX with manual event loop"""
     token = os.getenv('TELEGRAM_BOT_TOKEN')
     if not token:
         logger.error("❌ TELEGRAM_BOT_TOKEN environment variable not set!")
         sys.exit(1)
     
-    # Clear webhook on startup to prevent pending updates issue
-    async def clear_webhook():
-        try:
-            from telegram import Bot
-            bot = Bot(token)
-            
-            # First check current state
-            info = await bot.get_webhook_info()
-            if info.pending_update_count > 0 or info.url:
-                logger.info(f"🧹 Clearing webhook (URL: {info.url or 'None'}, Pending: {info.pending_update_count})")
-                await bot.delete_webhook(drop_pending_updates=True)
-                
-                # Verify it's cleared
-                new_info = await bot.get_webhook_info()
-                if new_info.pending_update_count > 0:
-                    logger.warning(f"⚠️ Still have {new_info.pending_updates} pending updates after clearing")
-                else:
-                    logger.info("✅ Webhook cleared successfully")
-            else:
-                logger.info("✅ No webhook or pending updates to clear")
-                
-        except Exception as e:
-            logger.error(f"❌ Failed to clear webhook: {e}")
-    
-    # Clear webhook first - CRITICAL for fixing responsiveness
-    try:
-        asyncio.run(clear_webhook())
-    except Exception as e:
-        logger.warning(f"Webhook clearing failed: {e}")
-    
-    bot = JobCollectorBot(token)
+    logger.info("🚀 Starting Job Collector Bot (Final Fix)...")
     
     # Check run mode
     run_mode = os.getenv('RUN_MODE', 'polling')
@@ -397,28 +427,32 @@ def main():
     if run_mode == 'scheduled':
         # Run job collection once and exit
         logger.info("Starting in scheduled mode...")
+        bot = JobCollectorBot(token)
         asyncio.run(bot.run_scheduled_job())
     else:
-        # Default: Polling mode - SIMPLIFIED
-        logger.info("🚀 Starting Job Collector Bot (Core Mode)...")
+        # Default: Manual polling mode
         logger.info("✅ Core functionality: Bot monitoring enabled")
         logger.info("ℹ️ User monitor: Temporarily disabled")
         
-        # Log configuration status
-        if bot._admin_id:
-            logger.info("✅ Admin functionality: Enabled")
-        else:
-            logger.info("ℹ️ Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
-        
-        # Set up post_init callback to start background tasks
-        async def post_init(application):
-            await bot.start_background_tasks()
-        
-        bot.app.post_init = post_init
+        # Create new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         
         try:
-            # SIMPLIFIED: Just run polling
-            bot.app.run_polling(drop_pending_updates=True)
+            # Clear webhook first
+            loop.run_until_complete(clear_webhook(token))
+            
+            # Create bot
+            bot = JobCollectorBot(token)
+            
+            # Log configuration status
+            if bot._admin_id:
+                logger.info("✅ Admin functionality: Enabled")
+            else:
+                logger.info("ℹ️ Admin functionality: Disabled (no AUTHORIZED_ADMIN_ID)")
+            
+            # Run the bot manually
+            loop.run_until_complete(bot.run_polling_manually())
             
         except KeyboardInterrupt:
             logger.info("Received keyboard interrupt")
@@ -427,9 +461,12 @@ def main():
         finally:
             # Cleanup
             try:
-                asyncio.run(bot.shutdown())
+                if 'bot' in locals():
+                    loop.run_until_complete(bot.shutdown())
             except Exception as e:
                 logger.error(f"Shutdown error: {e}")
+            finally:
+                loop.close()
 
 if __name__ == '__main__':
     main()
