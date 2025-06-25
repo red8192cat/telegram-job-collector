@@ -1,6 +1,6 @@
 """
 High-Performance SQLite Manager - PRODUCTION VERSION
-Uses BotConfig for all settings, emits events, database-only configuration
+FIXED: Schema creation SQL syntax error
 """
 
 import aiosqlite
@@ -88,7 +88,7 @@ class SQLiteManager:
             raise
         
     async def _create_schema(self, conn):
-        """Create optimized database schema with enhanced channel support"""
+        """Create optimized database schema with enhanced channel support - FIXED"""
         
         try:
             # Create monitored_channels table (current enhanced format)
@@ -106,8 +106,8 @@ class SQLiteManager:
             """)
             await self._create_channel_indexes(conn)
             
-            # Users table with language support
-            await conn.execute("""
+            # Users table with language support - FIXED: Remove parameter placeholder from DEFAULT
+            await conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY,
                     created_at TEXT DEFAULT (datetime('now')),
@@ -115,13 +115,13 @@ class SQLiteManager:
                     total_forwards INTEGER DEFAULT 0,
                     daily_forwards INTEGER DEFAULT 0,
                     last_forward_date TEXT DEFAULT (date('now')),
-                    language TEXT DEFAULT ?
+                    language TEXT DEFAULT '{self.config.DEFAULT_LANGUAGE}'
                 )
-            """, (self.config.DEFAULT_LANGUAGE,))
+            """)
             
             # Add new columns to existing users table (safe migrations)
             try:
-                await conn.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT ?", (self.config.DEFAULT_LANGUAGE,))
+                await conn.execute(f"ALTER TABLE users ADD COLUMN language TEXT DEFAULT '{self.config.DEFAULT_LANGUAGE}'")
             except Exception:
                 pass  # Column already exists
             
