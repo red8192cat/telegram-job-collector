@@ -134,7 +134,7 @@ class SQLiteManager:
                 logger.info("✅ Added daily_forwards column to users table")
                 
             if 'last_forward_date' not in existing_columns:
-                await conn.execute("ALTER TABLE users ADD COLUMN last_forward_date TEXT DEFAULT (date('now'))")
+                await conn.execute("ALTER TABLE users ADD COLUMN last_forward_date TEXT DEFAULT '2025-01-01'")
                 logger.info("✅ Added last_forward_date column to users table")
             
             # User keywords
