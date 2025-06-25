@@ -120,20 +120,22 @@ class SQLiteManager:
             """)
             
             # Add new columns to existing users table (safe migrations)
-            try:
-                await conn.execute(f"ALTER TABLE users ADD COLUMN language TEXT DEFAULT '{self.config.DEFAULT_LANGUAGE}'")
-            except Exception:
-                pass  # Column already exists
+            # Check and add missing columns
+            async with conn.execute("PRAGMA table_info(users)") as cursor:
+                columns = await cursor.fetchall()
+                existing_columns = {col[1] for col in columns}  # col[1] is column name
             
-            try:
+            if 'language' not in existing_columns:
+                await conn.execute(f"ALTER TABLE users ADD COLUMN language TEXT DEFAULT '{self.config.DEFAULT_LANGUAGE}'")
+                logger.info("✅ Added language column to users table")
+            
+            if 'daily_forwards' not in existing_columns:
                 await conn.execute("ALTER TABLE users ADD COLUMN daily_forwards INTEGER DEFAULT 0")
-            except Exception:
-                pass
+                logger.info("✅ Added daily_forwards column to users table")
                 
-            try:
+            if 'last_forward_date' not in existing_columns:
                 await conn.execute("ALTER TABLE users ADD COLUMN last_forward_date TEXT DEFAULT (date('now'))")
-            except Exception:
-                pass
+                logger.info("✅ Added last_forward_date column to users table")
             
             # User keywords
             await conn.execute("""
