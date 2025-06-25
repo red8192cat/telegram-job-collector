@@ -1,6 +1,7 @@
 """
 Message Handlers - PRODUCTION VERSION
 Event-driven architecture with BotConfig integration
+FIXED: Removed invalid ApplicationContext import
 """
 
 import asyncio
@@ -24,6 +25,10 @@ class MessageHandlers:
         self.keyword_matcher = KeywordMatcher()
         self.event_bus = get_event_bus()
         
+        # Bot instance for forwarding (will be set later)
+        self._bot_instance = None
+        self._forward_original = True
+        
         # Subscribe to job message events
         self.event_bus.subscribe(EventType.JOB_MESSAGE_RECEIVED, self.handle_job_message_event)
         
@@ -41,6 +46,15 @@ class MessageHandlers:
         
         logger.info("Enhanced message handlers registered (channels/groups only)")
     
+    def set_bot_instance(self, bot_instance):
+        """Set bot instance for message forwarding"""
+        self._bot_instance = bot_instance
+        logger.debug("Bot instance set for message forwarding")
+    
+    def set_forward_mode(self, forward_original: bool = True):
+        """Set whether to forward original messages or send custom formatted messages"""
+        self._forward_original = forward_original
+    
     async def handle_channel_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming messages from monitored bot channels"""
         message = update.message
@@ -54,24 +68,35 @@ class MessageHandlers:
         
         chat_id = message.chat.id
         
-        # Check if this channel is monitored by bot (using chat_id now)
-        bot_channels = await self.data_manager.get_simple_bot_channels()
-        if chat_id not in bot_channels:
-            return
-        
-        # Get display name for the channel
-        display_name = await self.data_manager.get_channel_display_name(chat_id)
-        logger.info(f"📨 Processing message from bot channel: {display_name}")
-        
-        # Emit job received event
-        correlation_id = f"bot_{chat_id}_{message.message_id}_{datetime.now().timestamp()}"
-        await emit_job_received(
-            message_text=message.text,
-            channel_id=chat_id,
-            message_id=message.message_id,
-            source='bot_channels',
-            correlation_id=correlation_id
-        )
+        try:
+            # Check if this channel is monitored by bot (using chat_id now)
+            bot_channels = await self.data_manager.get_simple_bot_channels()
+            if chat_id not in bot_channels:
+                logger.debug(f"Message from non-monitored channel: {chat_id}")
+                return
+            
+            # Get display name for the channel
+            display_name = await self.data_manager.get_channel_display_name(chat_id)
+            logger.info(f"📨 Processing message from bot channel: {display_name}")
+            
+            # Emit job received event
+            correlation_id = f"bot_{chat_id}_{message.message_id}_{datetime.now().timestamp()}"
+            await emit_job_received(
+                message_text=message.text,
+                channel_id=chat_id,
+                message_id=message.message_id,
+                source='bot_channels',
+                correlation_id=correlation_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error handling channel message: {e}")
+            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                'component': 'message_handlers',
+                'error': str(e),
+                'operation': 'handle_channel_message',
+                'chat_id': chat_id
+            }, source='message_handlers')
     
     async def handle_job_message_event(self, event):
         """Handle job message received event from any source"""
@@ -211,23 +236,16 @@ class MessageHandlers:
     
     async def _forward_message_to_user(self, user_chat_id: int, channel_id: int, 
                                      message_id: int, message_text: str, source: str) -> bool:
-        """Forward message to user with error handling"""
+        """Forward message to user with error handling - FIXED"""
         try:
-            # Get the bot instance from application context
-            # This is a bit of a hack, but necessary for the current architecture
-            from telegram.ext import ApplicationContext
-            
-            # We need access to the bot instance to send messages
-            # This will be injected by the main bot class
-            bot = getattr(self, '_bot_instance', None)
-            if not bot:
+            if not self._bot_instance:
                 logger.error("Bot instance not available for forwarding")
                 return False
             
             # Option 1: Forward original message (preserves all formatting)
-            if hasattr(self, '_forward_original') and self._forward_original:
+            if self._forward_original:
                 await asyncio.wait_for(
-                    bot.forward_message(
+                    self._bot_instance.forward_message(
                         chat_id=user_chat_id,
                         from_chat_id=channel_id,
                         message_id=message_id
@@ -240,7 +258,7 @@ class MessageHandlers:
                 formatted_message = f"📋 Job from {display_name}:\n\n{message_text}"
                 
                 await asyncio.wait_for(
-                    bot.send_message(
+                    self._bot_instance.send_message(
                         chat_id=user_chat_id, 
                         text=formatted_message
                     ),
@@ -258,14 +276,6 @@ class MessageHandlers:
         except Exception as e:
             logger.error(f"Unexpected error forwarding to user {user_chat_id}: {e}")
             return False
-    
-    def set_bot_instance(self, bot_instance):
-        """Set bot instance for message forwarding"""
-        self._bot_instance = bot_instance
-    
-    def set_forward_mode(self, forward_original: bool = True):
-        """Set whether to forward original messages or send custom formatted messages"""
-        self._forward_original = forward_original
     
     # Legacy method for backward compatibility
     async def collect_and_repost_jobs(self, bot):
