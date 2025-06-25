@@ -45,6 +45,201 @@ class HealthMonitor:
             logger.debug("✅ Health check completed")
             
         except Exception as e:
+            logger.error(f"❌ Health check failed: {e}")
+            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
+                'component': 'health_monitor',
+                'error': str(e),
+                'operation': 'run_health_check'
+            }, source='health_monitor')
+    
+    async def _perform_comprehensive_health_check(self, context) -> Dict:
+        """Perform comprehensive health check of all components"""
+        results = {
+            'database': await self._check_database_health(),
+            'user_monitor': await self._check_user_monitor_health(context),
+            'channels': await self._check_channels_health(context),
+            'system': await self._check_system_health(),
+            'performance': await self._check_performance_metrics()
+        }
+        
+        return results
+    
+    async def _check_database_health(self) -> Dict:
+        """Check database health and performance"""
+        try:
+            start_time = datetime.now()
+            
+            # Test basic connectivity
+            stats = await self.data_manager.get_system_stats()
+            
+            # Calculate response time
+            response_time = (datetime.now() - start_time).total_seconds() * 1000  # ms
+            
+            # Check for basic data integrity
+            users_count = stats.get('total_users', 0)
+            channels_count = sum(stats.get('channels', {}).values())
+            
+            status = {
+                'status': 'healthy',
+                'response_time_ms': response_time,
+                'users_count': users_count,
+                'channels_count': channels_count,
+                'last_checked': datetime.now().isoformat(),
+                'issues': []
+            }
+            
+            # Performance warnings
+            if response_time > 100:  # > 100ms
+                status['issues'].append(f"Slow database response: {response_time:.1f}ms")
+                if response_time > 1000:  # > 1s
+                    status['status'] = 'degraded'
+            
+            # Data integrity checks
+            if users_count == 0 and channels_count > 0:
+                status['issues'].append("No users found but channels exist")
+                status['status'] = 'warning'
+            
+            return status
+            
+        except Exception as e:
+            return {
+                'status': 'failed',
+                'error': str(e),
+                'last_checked': datetime.now().isoformat(),
+                'issues': [f"Database connection failed: {str(e)}"]
+            }
+    
+    async def _check_user_monitor_health(self, context) -> Dict:
+        """Check user monitor health"""
+        try:
+            if not context or not context.bot_data:
+                return {
+                    'status': 'not_available',
+                    'reason': 'No context available',
+                    'last_checked': datetime.now().isoformat()
+                }
+            
+            user_monitor = context.bot_data.get('user_monitor')
+            if not user_monitor:
+                return {
+                    'status': 'disabled',
+                    'reason': 'User monitor not configured',
+                    'last_checked': datetime.now().isoformat()
+                }
+            
+            # Check connection status
+            is_connected = user_monitor.is_connected()
+            auth_status = user_monitor.get_auth_status()
+            
+            # Get monitoring stats
+            try:
+                monitor_stats = await user_monitor.get_monitor_stats()
+            except Exception:
+                monitor_stats = {}
+            
+            status = {
+                'status': 'healthy',
+                'connected': is_connected,
+                'auth_status': auth_status,
+                'monitored_channels': monitor_stats.get('monitored_channels', 0),
+                'last_checked': datetime.now().isoformat(),
+                'issues': []
+            }
+            
+            # Determine overall status
+            if auth_status != 'authenticated':
+                status['status'] = 'needs_auth'
+                status['issues'].append(f"Authentication required: {auth_status}")
+            elif not is_connected:
+                status['status'] = 'disconnected'
+                status['issues'].append("User monitor not connected")
+            elif monitor_stats.get('reconnect_attempts', 0) > 2:
+                status['status'] = 'unstable'
+                status['issues'].append(f"Multiple reconnection attempts: {monitor_stats['reconnect_attempts']}")
+            
+            return status
+            
+        except Exception as e:
+            return {
+                'status': 'error',
+                'error': str(e),
+                'last_checked': datetime.now().isoformat(),
+                'issues': [f"Health check failed: {str(e)}"]
+            }
+    
+    async def _check_channels_health(self, context) -> Dict:
+        """Check channel health and bot permissions"""
+        try:
+            # Get all bot channels
+            bot_channels = await self.data_manager.get_simple_bot_channels()
+            
+            if not bot_channels:
+                return {
+                    'status': 'no_channels',
+                    'bot_channels_count': 0,
+                    'valid_channels': 0,
+                    'last_checked': datetime.now().isoformat()
+                }
+            
+            # Sample a few channels for health check (don't check all to avoid rate limits)
+            sample_size = min(5, len(bot_channels))
+            sample_channels = bot_channels[:sample_size]
+            
+            valid_channels = 0
+            issues = []
+            
+            if context and context.bot:
+                for chat_id in sample_channels:
+                    try:
+                        # Quick check with timeout
+                        chat = await asyncio.wait_for(
+                            context.bot.get_chat(chat_id),
+                            timeout=self.config.CHANNEL_VALIDATION_TIMEOUT
+                        )
+                        
+                        # Check admin status
+                        try:
+                            bot_member = await asyncio.wait_for(
+                                context.bot.get_chat_member(chat.id, context.bot.id),
+                                timeout=5
+                            )
+                            is_admin = bot_member.status in ['administrator', 'creator']
+                            
+                            if is_admin:
+                                valid_channels += 1
+                            else:
+                                display_name = await self.data_manager.get_channel_display_name(chat_id)
+                                issues.append(f"Not admin in {display_name}")
+                                
+                        except Exception:
+                            display_name = await self.data_manager.get_channel_display_name(chat_id)
+                            issues.append(f"Cannot check permissions in {display_name}")
+                    
+                    except asyncio.TimeoutError:
+                        display_name = await self.data_manager.get_channel_display_name(chat_id)
+                        issues.append(f"Timeout accessing {display_name}")
+                    except Exception as e:
+                        display_name = await self.data_manager.get_channel_display_name(chat_id)
+                        issues.append(f"Error accessing {display_name}: {str(e)[:50]}")
+            
+            # Determine status
+            if valid_channels == sample_size:
+                status = 'healthy'
+            elif valid_channels > 0:
+                status = 'partial'
+            else:
+                status = 'issues'
+            
+            return {
+                'status': status,
+                'bot_channels_count': len(bot_channels),
+                'sample_checked': sample_size,
+                'valid_channels': valid_channels,
+                'issues': issues,
+                'last_checked': datetime.now().isoformat()
+            }
+            
+        except Exception as e:
             return {
                 'status': 'error',
                 'error': str(e),
@@ -66,8 +261,8 @@ class HealthMonitor:
                 pass
             
             # Memory and performance indicators
-            import psutil
             try:
+                import psutil
                 memory_percent = psutil.virtual_memory().percent
                 cpu_percent = psutil.cpu_percent(interval=1)
             except Exception:
@@ -402,198 +597,3 @@ class HealthMonitor:
         
         overall_status = self._determine_overall_status(self.component_status)
         return overall_status in ['healthy', 'warning']
-            logger.error(f"❌ Health check failed: {e}")
-            await self.event_bus.emit(EventType.SYSTEM_ERROR, {
-                'component': 'health_monitor',
-                'error': str(e),
-                'operation': 'run_health_check'
-            }, source='health_monitor')
-    
-    async def _perform_comprehensive_health_check(self, context) -> Dict:
-        """Perform comprehensive health check of all components"""
-        results = {
-            'database': await self._check_database_health(),
-            'user_monitor': await self._check_user_monitor_health(context),
-            'channels': await self._check_channels_health(context),
-            'system': await self._check_system_health(),
-            'performance': await self._check_performance_metrics()
-        }
-        
-        return results
-    
-    async def _check_database_health(self) -> Dict:
-        """Check database health and performance"""
-        try:
-            start_time = datetime.now()
-            
-            # Test basic connectivity
-            stats = await self.data_manager.get_system_stats()
-            
-            # Calculate response time
-            response_time = (datetime.now() - start_time).total_seconds() * 1000  # ms
-            
-            # Check for basic data integrity
-            users_count = stats.get('total_users', 0)
-            channels_count = sum(stats.get('channels', {}).values())
-            
-            status = {
-                'status': 'healthy',
-                'response_time_ms': response_time,
-                'users_count': users_count,
-                'channels_count': channels_count,
-                'last_checked': datetime.now().isoformat(),
-                'issues': []
-            }
-            
-            # Performance warnings
-            if response_time > 100:  # > 100ms
-                status['issues'].append(f"Slow database response: {response_time:.1f}ms")
-                if response_time > 1000:  # > 1s
-                    status['status'] = 'degraded'
-            
-            # Data integrity checks
-            if users_count == 0 and channels_count > 0:
-                status['issues'].append("No users found but channels exist")
-                status['status'] = 'warning'
-            
-            return status
-            
-        except Exception as e:
-            return {
-                'status': 'failed',
-                'error': str(e),
-                'last_checked': datetime.now().isoformat(),
-                'issues': [f"Database connection failed: {str(e)}"]
-            }
-    
-    async def _check_user_monitor_health(self, context) -> Dict:
-        """Check user monitor health"""
-        try:
-            if not context or not context.bot_data:
-                return {
-                    'status': 'not_available',
-                    'reason': 'No context available',
-                    'last_checked': datetime.now().isoformat()
-                }
-            
-            user_monitor = context.bot_data.get('user_monitor')
-            if not user_monitor:
-                return {
-                    'status': 'disabled',
-                    'reason': 'User monitor not configured',
-                    'last_checked': datetime.now().isoformat()
-                }
-            
-            # Check connection status
-            is_connected = user_monitor.is_connected()
-            auth_status = user_monitor.get_auth_status()
-            
-            # Get monitoring stats
-            try:
-                monitor_stats = await user_monitor.get_monitor_stats()
-            except Exception:
-                monitor_stats = {}
-            
-            status = {
-                'status': 'healthy',
-                'connected': is_connected,
-                'auth_status': auth_status,
-                'monitored_channels': monitor_stats.get('monitored_channels', 0),
-                'last_checked': datetime.now().isoformat(),
-                'issues': []
-            }
-            
-            # Determine overall status
-            if auth_status != 'authenticated':
-                status['status'] = 'needs_auth'
-                status['issues'].append(f"Authentication required: {auth_status}")
-            elif not is_connected:
-                status['status'] = 'disconnected'
-                status['issues'].append("User monitor not connected")
-            elif monitor_stats.get('reconnect_attempts', 0) > 2:
-                status['status'] = 'unstable'
-                status['issues'].append(f"Multiple reconnection attempts: {monitor_stats['reconnect_attempts']}")
-            
-            return status
-            
-        except Exception as e:
-            return {
-                'status': 'error',
-                'error': str(e),
-                'last_checked': datetime.now().isoformat(),
-                'issues': [f"Health check failed: {str(e)}"]
-            }
-    
-    async def _check_channels_health(self, context) -> Dict:
-        """Check channel health and bot permissions"""
-        try:
-            # Get all bot channels
-            bot_channels = await self.data_manager.get_simple_bot_channels()
-            
-            if not bot_channels:
-                return {
-                    'status': 'no_channels',
-                    'bot_channels_count': 0,
-                    'valid_channels': 0,
-                    'last_checked': datetime.now().isoformat()
-                }
-            
-            # Sample a few channels for health check (don't check all to avoid rate limits)
-            sample_size = min(5, len(bot_channels))
-            sample_channels = bot_channels[:sample_size]
-            
-            valid_channels = 0
-            issues = []
-            
-            if context and context.bot:
-                for chat_id in sample_channels:
-                    try:
-                        # Quick check with timeout
-                        chat = await asyncio.wait_for(
-                            context.bot.get_chat(chat_id),
-                            timeout=self.config.CHANNEL_VALIDATION_TIMEOUT
-                        )
-                        
-                        # Check admin status
-                        try:
-                            bot_member = await asyncio.wait_for(
-                                context.bot.get_chat_member(chat.id, context.bot.id),
-                                timeout=5
-                            )
-                            is_admin = bot_member.status in ['administrator', 'creator']
-                            
-                            if is_admin:
-                                valid_channels += 1
-                            else:
-                                display_name = await self.data_manager.get_channel_display_name(chat_id)
-                                issues.append(f"Not admin in {display_name}")
-                                
-                        except Exception:
-                            display_name = await self.data_manager.get_channel_display_name(chat_id)
-                            issues.append(f"Cannot check permissions in {display_name}")
-                    
-                    except asyncio.TimeoutError:
-                        display_name = await self.data_manager.get_channel_display_name(chat_id)
-                        issues.append(f"Timeout accessing {display_name}")
-                    except Exception as e:
-                        display_name = await self.data_manager.get_channel_display_name(chat_id)
-                        issues.append(f"Error accessing {display_name}: {str(e)[:50]}")
-            
-            # Determine status
-            if valid_channels == sample_size:
-                status = 'healthy'
-            elif valid_channels > 0:
-                status = 'partial'
-            else:
-                status = 'issues'
-            
-            return {
-                'status': status,
-                'bot_channels_count': len(bot_channels),
-                'sample_checked': sample_size,
-                'valid_channels': valid_channels,
-                'issues': issues,
-                'last_checked': datetime.now().isoformat()
-            }
-            
-        except Exception as e:
